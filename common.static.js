@@ -101,10 +101,11 @@
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       return {
         users: parsed && parsed.users && typeof parsed.users === "object" ? parsed.users : {},
-        sessionUserId: String(parsed && parsed.sessionUserId ? parsed.sessionUserId : "").trim() || null
+        sessionUserId: String(parsed && parsed.sessionUserId ? parsed.sessionUserId : "").trim() || null,
+        authCodes: parsed && parsed.authCodes && typeof parsed.authCodes === "object" ? parsed.authCodes : {}
       };
     } catch (error) {
-      return { users: {}, sessionUserId: null };
+      return { users: {}, sessionUserId: null, authCodes: {} };
     }
   }
 
@@ -373,8 +374,16 @@
     if (!currentUser) return;
     syncState();
     const store = loadStore();
-    const record = store.users[currentUser.id] || { id: currentUser.id, username: currentUser.username, password: "", createdAt: nowIso(), updatedAt: nowIso() };
+    const record = store.users[currentUser.id] || {
+      id: currentUser.id,
+      username: currentUser.username,
+      email: currentUser.email || currentUser.username,
+      password: "",
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
     record.username = currentUser.username;
+    record.email = currentUser.email || currentUser.username;
     record.updatedAt = nowIso();
     record.state = {
       currentQuestion: state.currentQuestion,
@@ -408,17 +417,121 @@
     persistent.activities = [`${stamp} - ${text}`, ...normalizeActivities(persistent.activities)].slice(0, 20);
   }
 
-  function validateUsernameAndPassword(username, password) {
-    const nextUsername = String(username || "").trim();
-    const nextPassword = String(password || "");
-    if (!nextUsername || nextUsername.length < 2) return { ok: false, message: "用户名至少需要 2 个字符" };
-    if (!nextPassword || nextPassword.length < 4) return { ok: false, message: "密码至少需要 4 个字符" };
-    return { ok: true, username: nextUsername, password: nextPassword };
+  function validateEmail(email) {
+    const nextEmail = String(email || "").trim().toLowerCase();
+    if (!nextEmail) return { ok: false, message: "请输入邮箱地址" };
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(nextEmail)) return { ok: false, message: "请输入有效的邮箱地址" };
+    return { ok: true, email: nextEmail };
   }
 
-  function findUserByUsername(store, username) {
-    const lower = String(username || "").trim().toLowerCase();
-    return Object.values(store.users).find((item) => String(item.username || "").trim().toLowerCase() === lower) || null;
+  function assessPasswordRisk(password, email = "") {
+    const rawPassword = String(password || "");
+    const lowered = rawPassword.toLowerCase();
+    const loweredEmail = String(email || "").trim().toLowerCase();
+    const emailPrefix = loweredEmail.includes("@") ? loweredEmail.split("@")[0] : loweredEmail;
+    const issues = [];
+    let score = 0;
+
+    if (rawPassword.length >= 8) score += 1; else issues.push("至少使用 8 位密码");
+    if (rawPassword.length >= 12) score += 1;
+    if (/[a-z]/.test(rawPassword)) score += 1; else issues.push("加入小写字母");
+    if (/[A-Z]/.test(rawPassword)) score += 1; else issues.push("加入大写字母");
+    if (/\d/.test(rawPassword)) score += 1; else issues.push("加入数字");
+    if (/[^A-Za-z0-9]/.test(rawPassword)) score += 1; else issues.push("加入特殊字符");
+    if (/(.)\1{2,}/.test(rawPassword)) issues.push("避免连续重复字符");
+    if (/123456|password|qwerty|abcdef|111111|000000|admin|iloveyou|123123|abc123/i.test(rawPassword)) issues.push("不要使用常见弱密码组合");
+    if (emailPrefix && emailPrefix.length >= 3 && lowered.includes(emailPrefix)) issues.push("密码不要包含邮箱名前缀");
+
+    const uniqueChars = new Set(rawPassword.split("")).size;
+    if (uniqueChars >= 6) score += 1; else issues.push("增加字符多样性");
+
+    const ok = rawPassword.length >= 8 && score >= 5 && issues.length <= 2;
+    let level = "高风险";
+    if (ok && score >= 6 && issues.length === 0) level = "低风险";
+    else if (rawPassword.length >= 8 && score >= 4) level = "中风险";
+
+    const summary = level === "低风险"
+      ? "当前密码风险较低，可以继续使用。"
+      : level === "中风险"
+        ? "当前密码可用，但还有进一步加固空间。"
+        : "当前密码风险较高，建议先强化后再注册。";
+
+    return {
+      ok,
+      level,
+      score,
+      issues,
+      summary,
+      message: ok ? "密码可用" : `密码风险过高：${issues[0] || "请增加复杂度"}`
+    };
+  }
+
+  function validateEmailAndPassword(email, password, options = {}) {
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.ok) return emailValidation;
+    const nextPassword = String(password || "");
+    if (!nextPassword) return { ok: false, message: "请输入密码" };
+    const risk = assessPasswordRisk(nextPassword, emailValidation.email);
+    if (options.enforceStrong && !risk.ok) return { ok: false, message: risk.message, email: emailValidation.email, password: nextPassword, risk };
+    return { ok: true, email: emailValidation.email, password: nextPassword, risk };
+  }
+
+  function findUserByEmail(store, email) {
+    const lower = String(email || "").trim().toLowerCase();
+    return Object.values(store.users).find((item) => {
+      const candidateEmail = String(item.email || item.username || "").trim().toLowerCase();
+      return candidateEmail === lower;
+    }) || null;
+  }
+
+  function makeAuthCodeKey(email, purpose) {
+    return `${String(purpose || "login").trim()}:${String(email || "").trim().toLowerCase()}`;
+  }
+
+  function cleanupAuthCodes(store) {
+    const now = Date.now();
+    const nextCodes = {};
+    Object.entries(store.authCodes || {}).forEach(([key, value]) => {
+      if (value && Number(value.expiresAt) > now) nextCodes[key] = value;
+    });
+    store.authCodes = nextCodes;
+  }
+
+  function verifyAndConsumeAuthCode(store, email, code, purpose) {
+    cleanupAuthCodes(store);
+    const key = makeAuthCodeKey(email, purpose);
+    const record = store.authCodes[key];
+    if (!record) throw new Error("验证码不存在或已过期，请重新获取");
+    if (String(record.code || "") !== String(code || "").trim()) throw new Error("验证码错误，请重新输入");
+    delete store.authCodes[key];
+  }
+
+  async function sendAuthCode(email, purpose = "login") {
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.ok) throw new Error(emailValidation.message);
+    const store = loadStore();
+    cleanupAuthCodes(store);
+    const account = findUserByEmail(store, emailValidation.email);
+    if (purpose === "register" && account) throw new Error("该邮箱已经注册过了");
+    if (purpose === "login" && !account) throw new Error("该邮箱还没有注册，请先注册账号");
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const key = makeAuthCodeKey(emailValidation.email, purpose);
+    store.authCodes[key] = {
+      code,
+      purpose,
+      email: emailValidation.email,
+      createdAt: nowIso(),
+      expiresAt: Date.now() + 10 * 60 * 1000
+    };
+    saveStore(store);
+    return {
+      ok: true,
+      email: emailValidation.email,
+      expiresInMinutes: 10,
+      previewCode: code
+    };
   }
 
   function resetAuthState() {
@@ -431,7 +544,11 @@
   }
 
   function setCurrentRecord(record) {
-    currentUser = { id: record.id, username: record.username };
+    currentUser = {
+      id: record.id,
+      username: record.username || record.email || "",
+      email: record.email || record.username || ""
+    };
     persistent = { ...createPersistentState(), ...(record.state || {}) };
     conversations = normalizeConversations(record.conversations);
     aiSecrets = { ...createDefaultSecrets(), ...(record.secrets || {}) };
@@ -456,12 +573,25 @@
   }
 
   async function register(username, password) {
-    const validation = validateUsernameAndPassword(username, password);
+    const verificationCode = arguments[2];
+    const validation = validateEmailAndPassword(username, password, { enforceStrong: true });
     if (!validation.ok) throw new Error(validation.message);
     const store = loadStore();
-    if (findUserByUsername(store, validation.username)) throw new Error("该用户名已被注册");
+    if (findUserByEmail(store, validation.email)) throw new Error("该邮箱已被注册");
+    verifyAndConsumeAuthCode(store, validation.email, verificationCode, "register");
     const id = generateId();
-    const record = { id, username: validation.username, password: validation.password, createdAt: nowIso(), updatedAt: nowIso(), state: createPersistentState(), conversations: [], secrets: createDefaultSecrets() };
+    const record = {
+      id,
+      username: validation.email,
+      email: validation.email,
+      password: validation.password,
+      emailVerifiedAt: nowIso(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      state: createPersistentState(),
+      conversations: [],
+      secrets: createDefaultSecrets()
+    };
     store.users[id] = record;
     store.sessionUserId = id;
     saveStore(store);
@@ -471,11 +601,13 @@
   }
 
   async function login(username, password) {
-    const validation = validateUsernameAndPassword(username, password);
+    const verificationCode = arguments[2];
+    const validation = validateEmailAndPassword(username, password, { enforceStrong: false });
     if (!validation.ok) throw new Error(validation.message);
     const store = loadStore();
-    const record = findUserByUsername(store, validation.username);
-    if (!record || String(record.password || "") !== validation.password) throw new Error("用户名或密码错误");
+    const record = findUserByEmail(store, validation.email);
+    if (!record || String(record.password || "") !== validation.password) throw new Error("邮箱或密码错误");
+    verifyAndConsumeAuthCode(store, validation.email, verificationCode, "login");
     store.sessionUserId = record.id;
     saveStore(store);
     setCurrentRecord(record);
@@ -1026,6 +1158,7 @@
 
   Object.assign(window.PersonalityApp, {
     initialize, fetchAppState, register, login, logout, getState, getUser, isAuthenticated,
+    sendAuthCode, assessPasswordRisk,
     updatePreferences, toggleTheme, closeOnboarding, setSelectedScenario, setCurrentQuestion,
     answerQuestion, getNextUnansweredIndex, completeMBTI, manualSelectMbti, resetMBTI,
     addTodo, toggleTodoDone, requestCoach, setActiveAiConversation, loadAiConversationMessages,

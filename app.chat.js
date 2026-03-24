@@ -67,7 +67,12 @@ const els = {
   authModeTitle: document.getElementById("authModeTitle"),
   authModeCopy: document.getElementById("authModeCopy"),
   authUsername: document.getElementById("authUsername"),
+  authCodeWrap: document.getElementById("authCodeWrap"),
+  authCode: document.getElementById("authCode"),
+  authCodeHint: document.getElementById("authCodeHint"),
+  authSendCodeBtn: document.getElementById("authSendCodeBtn"),
   authPassword: document.getElementById("authPassword"),
+  authRiskNote: document.getElementById("authRiskNote"),
   authConfirmWrap: document.getElementById("authConfirmWrap"),
   authConfirm: document.getElementById("authConfirm"),
   authSubmit: document.getElementById("authSubmit"),
@@ -190,7 +195,12 @@ function bindEvents() {
     updateAuthModeUI();
   });
 
+  els.authSendCodeBtn.addEventListener("click", handleSendAuthCode);
   els.authForm.addEventListener("submit", handleAuthSubmit);
+  els.authPassword.addEventListener("input", renderPasswordRisk);
+  els.authUsername.addEventListener("input", () => {
+    if (authMode === "register") renderPasswordRisk();
+  });
 
   els.moduleNav.querySelectorAll("[data-module]").forEach((button) => {
     button.addEventListener("click", () => switchModule(button.dataset.module));
@@ -363,28 +373,77 @@ function updateAuthModeUI() {
   const isLogin = authMode === "login";
   els.authModeTitle.textContent = isLogin ? "登录" : "注册";
   els.authModeCopy.textContent = isLogin
-    ? "输入用户名和密码，进入你的专属成长空间。"
-    : "创建你的愈格账号，保存测试、任务与 AI 历史。";
+    ? "输入邮箱、密码和验证码，安全进入你的专属成长空间。"
+    : "使用邮箱注册并完成验证，安全保存测试、计划与 AI 历史。";
   els.authSubmit.textContent = isLogin ? "登录" : "注册并进入";
   els.authTogglePrompt.textContent = isLogin ? "还没有账号？" : "已经有账号了？";
   els.authToggleBtn.textContent = isLogin ? "立即注册" : "返回登录";
   els.authConfirmWrap.classList.toggle("hidden", isLogin);
   els.authConfirm.required = !isLogin;
+  els.authSendCodeBtn.textContent = isLogin ? "发送登录验证码" : "发送注册验证码";
+  els.authCodeHint.textContent = isLogin
+    ? "静态演示版会在页面提示登录验证码，正式邮箱发送需要后端服务支持。"
+    : "静态演示版会在页面提示注册验证码，正式邮箱发送需要后端服务支持。";
+  els.authUsername.setAttribute("autocomplete", "email");
   els.authPassword.setAttribute("autocomplete", isLogin ? "current-password" : "new-password");
+  els.authPassword.setAttribute("placeholder", isLogin ? "请输入密码" : "请设置密码");
+  els.authRiskNote.classList.toggle("hidden", isLogin);
+  renderPasswordRisk();
 }
 
 function clearAuthForm() {
   els.authForm.reset();
+  els.authRiskNote.textContent = "";
+  els.authRiskNote.className = "auth-risk-note hidden";
+}
+
+function renderPasswordRisk() {
+  if (authMode !== "register") {
+    els.authRiskNote.textContent = "";
+    els.authRiskNote.className = "auth-risk-note hidden";
+    return;
+  }
+  const password = els.authPassword.value;
+  if (!password) {
+    els.authRiskNote.textContent = "密码建议至少 8 位，包含大小写字母、数字和特殊字符，并避免使用邮箱名前缀。";
+    els.authRiskNote.className = "auth-risk-note info";
+    return;
+  }
+  const assessment = app.assessPasswordRisk(password, els.authUsername.value.trim());
+  const detail = assessment.issues.length ? ` 当前建议：${assessment.issues.slice(0, 3).join("，")}。` : "";
+  els.authRiskNote.textContent = `${assessment.level}：${assessment.summary}${detail}`;
+  els.authRiskNote.className = `auth-risk-note ${assessment.ok ? "success" : assessment.level === "中风险" ? "warning" : "error"}`;
+}
+
+async function handleSendAuthCode() {
+  const email = els.authUsername.value.trim();
+  if (!email) {
+    app.notify("请先输入邮箱地址");
+    return;
+  }
+  const purpose = authMode === "login" ? "login" : "register";
+  els.authSendCodeBtn.disabled = true;
+  els.authSendCodeBtn.textContent = "发送中...";
+  try {
+    const result = await app.sendAuthCode(email, purpose);
+    app.notify(`静态演示验证码：${result.previewCode}（10 分钟内有效）`);
+  } catch (error) {
+    app.notify(error.message || "发送验证码失败");
+  } finally {
+    els.authSendCodeBtn.disabled = false;
+    els.authSendCodeBtn.textContent = authMode === "login" ? "发送登录验证码" : "发送注册验证码";
+  }
 }
 
 async function handleAuthSubmit(event) {
   event.preventDefault();
 
-  const username = els.authUsername.value.trim();
+  const email = els.authUsername.value.trim();
+  const code = els.authCode.value.trim();
   const password = els.authPassword.value;
   const confirm = els.authConfirm.value;
 
-  if (!username || !password) {
+  if (!email || !password || !code) {
     app.notify("请填写完整信息");
     return;
   }
@@ -400,9 +459,9 @@ async function handleAuthSubmit(event) {
 
   try {
     if (isLogin) {
-      await app.login(username, password);
+      await app.login(email, password, code);
     } else {
-      await app.register(username, password);
+      await app.register(email, password, code);
     }
   } catch (error) {
     app.notify(error.message || (isLogin ? "登录失败" : "注册失败"));

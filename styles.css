@@ -218,6 +218,25 @@ button {
   gap: 10px;
 }
 
+.auth-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-inline-btn {
+  padding: 0;
+  min-height: auto;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.auth-inline-hint {
+  margin: 4px 4px 0;
+  font-size: 0.85rem;
+}
+
 label {
   display: block;
   margin-top: 6px;
@@ -265,6 +284,37 @@ select {
   border: 0;
   background: transparent;
   padding-left: 0;
+}
+
+.auth-risk-note {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.auth-risk-note.info {
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+
+.auth-risk-note.success {
+  color: #0f6a4e;
+  background: rgba(57, 166, 115, 0.14);
+  border-color: rgba(57, 166, 115, 0.28);
+}
+
+.auth-risk-note.warning {
+  color: #8c5a17;
+  background: rgba(214, 154, 61, 0.14);
+  border-color: rgba(214, 154, 61, 0.28);
+}
+
+.auth-risk-note.error {
+  color: #9c2f2f;
+  background: rgba(201, 83, 83, 0.14);
+  border-color: rgba(201, 83, 83, 0.28);
 }
 
 input:focus,

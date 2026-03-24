@@ -28,14 +28,26 @@
           <div class="auth-card-head">
             <p class="auth-overline">Welcome Back</p>
             <h2 id="authModeTitle">登录</h2>
-            <p id="authModeCopy" class="muted">输入用户名和密码，进入你的专属成长空间。</p>
+            <p id="authModeCopy" class="muted">输入邮箱、密码和验证码，进入你的专属成长空间。</p>
           </div>
 
           <form id="authForm" class="auth-form">
-            <label>用户名</label>
+            <label>邮箱</label>
             <div class="auth-field">
               <span class="auth-field-icon">◌</span>
-              <input id="authUsername" type="text" autocomplete="username" placeholder="请输入用户名" required />
+              <input id="authUsername" type="email" autocomplete="email" placeholder="请输入邮箱地址" required />
+            </div>
+
+            <div id="authCodeWrap">
+              <div class="auth-inline-head">
+                <label>邮箱验证码</label>
+                <button id="authSendCodeBtn" class="text-btn auth-inline-btn" type="button">发送登录验证码</button>
+              </div>
+              <div class="auth-field">
+                <span class="auth-field-icon">#</span>
+                <input id="authCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="请输入 6 位验证码" required />
+              </div>
+              <p id="authCodeHint" class="muted auth-inline-hint">静态演示版会在页面提示验证码，正式邮箱发送需要后端服务支持。</p>
             </div>
 
             <label>密码</label>
@@ -43,6 +55,7 @@
               <span class="auth-field-icon">⌘</span>
               <input id="authPassword" type="password" autocomplete="current-password" placeholder="请输入密码" required />
             </div>
+            <div id="authRiskNote" class="auth-risk-note hidden"></div>
 
             <div id="authConfirmWrap" class="hidden">
               <label>确认密码</label>
