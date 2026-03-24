@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>愈格 | 性格改进软件</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700;800&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-veil"></div>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-orb orb-3"></div>
+
+    <section id="authShell" class="auth-shell">
+      <div class="auth-shell-inner container">
+        <div class="auth-hero">
+          <p class="auth-kicker">YUGE · AI Personality Coach</p>
+          <h1>愈格</h1>
+          <p class="auth-copy">把性格理解，变成今天就能开始的一步。</p>
+        </div>
+
+        <div class="auth-card">
+          <div class="auth-card-head">
+            <p class="auth-overline">Welcome Back</p>
+            <h2 id="authModeTitle">登录</h2>
+            <p id="authModeCopy" class="muted">输入用户名和密码，进入你的专属成长空间。</p>
+          </div>
+
+          <form id="authForm" class="auth-form">
+            <label>用户名</label>
+            <div class="auth-field">
+              <span class="auth-field-icon">◌</span>
+              <input id="authUsername" type="text" autocomplete="username" placeholder="请输入用户名" required />
+            </div>
+
+            <label>密码</label>
+            <div class="auth-field">
+              <span class="auth-field-icon">⌘</span>
+              <input id="authPassword" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+            </div>
+
+            <div id="authConfirmWrap" class="hidden">
+              <label>确认密码</label>
+              <div class="auth-field">
+                <span class="auth-field-icon">⌘</span>
+                <input id="authConfirm" type="password" autocomplete="new-password" placeholder="请再次输入密码" />
+              </div>
+            </div>
+
+            <button id="authSubmit" class="primary-btn auth-submit" type="submit">登录</button>
+          </form>
+
+          <p class="auth-switch-row">
+            <span id="authTogglePrompt">还没有账号？</span>
+            <button id="authToggleBtn" class="text-btn" type="button">立即注册</button>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div id="siteShell" class="site-shell hidden">
+      <header class="topbar container">
+        <div class="brand-block">
+          <p class="eyebrow">YUGE · AI Personality Coach</p>
+          <h1><a href="#home">愈格</a></h1>
+          <p class="muted">更温和地理解自己，更具体地开始行动。</p>
+        </div>
+        <div class="top-actions">
+          <span id="userPill" class="user-pill hidden"></span>
+          <button id="themeToggle" class="ghost-btn" type="button">切换深浅色</button>
+          <button id="continueTestBtn" class="ghost-btn" type="button">继续测试</button>
+          <button id="logoutBtn" class="primary-btn subtle-btn" type="button">退出登录</button>
+        </div>
+      </header>
+
+      <div class="container">
+        <nav class="page-nav" id="moduleNav" aria-label="模块切换">
+          <button class="nav-link active" data-module="home" aria-pressed="true">首页</button>
+          <button class="nav-link" data-module="mbti" aria-pressed="false">MBTI测试</button>
+          <button class="nav-link" data-module="analysis" aria-pressed="false">性格分析</button>
+          <button class="nav-link" data-module="coach" aria-pressed="false">AI助手</button>
+          <button class="nav-link" data-module="progress" aria-pressed="false">进度激励</button>
+          <button class="nav-link" data-module="settings" aria-pressed="false">设置</button>
+        </nav>
+      </div>
+
+      <main class="container page-main">
+        <section class="card module-panel" id="module-home">
+          <div class="home-hero">
+            <div class="home-copy">
+              <p class="eyebrow">AI FIRST · HOME</p>
+              <h2 class="home-display">先和 AI 聊聊，再决定今天怎么改变。</h2>
+              <p class="home-lead">愈格会把你的目标拆成温和、具体、能立刻开始的行动步骤。</p>
+              <div class="home-actions">
+                <button id="homeCoachBtn" class="primary-btn hero-btn" type="button">立即使用 AI 助手</button>
+                <button id="homeMbtiBtn" class="ghost-btn hero-btn" type="button">完成 MBTI 测试</button>
+              </div>
+            </div>
+
+            <div class="hero-stage">
+              <div class="hero-screen">
+                <div class="screen-topline">
+                  <span>今日重点</span>
+                  <span>Private Session</span>
+                </div>
+                <h3 id="homeCoachHeadline">AI 改进助手</h3>
+                <p id="homeCoachSummary">选择团队会议、冲突处理、决策时刻等场景，马上得到 3 步建议。</p>
+                <div class="hero-metrics">
+                  <article>
+                    <span>已达成计划</span>
+                    <strong id="homeAiCount">0</strong>
+                  </article>
+                  <article>
+                    <span>进行中计划</span>
+                    <strong id="homeTodos">0</strong>
+                  </article>
+                  <article>
+                    <span>总体进度</span>
+                    <strong id="homeProgress">0%</strong>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="home-secondary-grid">
+            <article class="subcard home-status-card">
+              <h3>成长状态</h3>
+              <p id="homeMbti" class="home-status-text">MBTI：未完成</p>
+              <p id="homeMilestone" class="muted"></p>
+            </article>
+
+            <article class="subcard">
+              <h3>快速入口</h3>
+              <div class="quick-links compact-links">
+                <button class="quick-link-card" data-jump="coach" type="button">
+                  <h4>进入 AI 助手</h4>
+                  <p class="muted">从实际情境出发，马上生成建议。</p>
+                </button>
+                <button class="quick-link-card" data-jump="mbti" type="button">
+                  <h4>进入 MBTI</h4>
+                  <p class="muted">完成56题测试，生成你的性格画像。</p>
+                </button>
+                <button class="quick-link-card" data-jump="progress" type="button">
+                  <h4>查看计划簿</h4>
+                  <p class="muted">追踪计划完成度、阈值和达成状态。</p>
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="card module-panel hidden" id="module-mbti">
+          <div class="module-head">
+            <h2>MBTI 测试（56题）</h2>
+            <span class="module-chip">自动保存进度</span>
+          </div>
+          <p class="muted">请按真实倾向作答。结果包含信度和匹配度，仅作成长参考。</p>
+          <div class="manual-mbti-card">
+            <div class="manual-mbti-copy">
+              <span class="module-chip">已知类型可直达</span>
+              <h3>我已知道自己的 MBTI</h3>
+              <p class="muted">适合已经在别处测试过、想直接开始使用愈格的用户。保存后会立即同步到首页、分析页和 AI 助手上下文。</p>
+            </div>
+            <div class="manual-mbti-controls">
+              <label for="manualMbtiSelect">16 型选择</label>
+              <select id="manualMbtiSelect"></select>
+              <button id="saveManualMbtiBtn" class="primary-btn" type="button">保存为当前人格类型</button>
+              <p id="manualMbtiHint" class="muted">你也可以继续完成 56 题测试，正式测试结果会覆盖手动选择。</p>
+            </div>
+          </div>
+          <div id="questionBox" class="question-box"></div>
+          <div id="optionBox" class="option-box"></div>
+          <div class="nav-row">
+            <button id="prevQuestion" class="ghost-btn" type="button">上一题</button>
+            <button id="nextQuestion" class="ghost-btn" type="button">下一题</button>
+            <button id="finishTest" class="primary-btn" type="button">完成并分析</button>
+          </div>
+          <div id="questionDots" class="dots"></div>
+          <div id="mbtiResult" class="result-box hidden"></div>
+        </section>
+
+        <section class="card module-panel hidden" id="module-analysis">
+          <div class="module-head">
+            <h2>性格分析</h2>
+            <span class="module-chip">8维画像</span>
+          </div>
+          <p id="typeSummary" class="muted"></p>
+          <canvas id="radarChart" height="220"></canvas>
+          <div id="radarFallback" class="radar-fallback hidden"></div>
+
+          <div class="analysis-grid">
+            <article class="subcard">
+              <h3>优势</h3>
+              <ul id="strengthList"></ul>
+            </article>
+            <article class="subcard">
+              <h3>可改进点</h3>
+              <ul id="improveList"></ul>
+            </article>
+          </div>
+
+          <article class="subcard">
+            <h3>跨类型互动建议</h3>
+            <p id="interactionAdvice" class="muted"></p>
+          </article>
+        </section>
+
+        <section class="card module-panel hidden" id="module-coach">
+          <div class="module-head">
+            <h2>AI 改进助手</h2>
+            <span class="module-chip">首页主功能</span>
+          </div>
+          <p id="coachConfigStatus" class="muted"></p>
+          <div class="coach-toolbar">
+            <button class="ghost-btn" data-jump="settings" type="button">前往 API 设置</button>
+            <button id="newConversationBtn" class="ghost-btn" type="button">新对话</button>
+            <button id="clearAiHistoryBtn" class="ghost-btn danger-btn" type="button">清空全部历史</button>
+          </div>
+          <p class="muted input-hint">历史会按会话收进左侧栏。Enter 发送，Shift+Enter 换行。</p>
+          <div class="coach-layout">
+            <aside class="coach-sidebar">
+              <div class="coach-sidebar-head">
+                <h3>历史会话</h3>
+                <span id="coachHistoryCount" class="muted">0 段</span>
+              </div>
+              <div id="conversationHistoryList" class="conversation-history"></div>
+            </aside>
+            <div class="coach-chat-shell">
+              <div class="coach-chat-head coach-chat-head--split">
+                <div>
+                  <h3 id="coachConversationTitle">新的对话</h3>
+                  <p id="coachConversationMeta" class="muted">开始第一条消息后，这里会保存成一段完整会话。</p>
+                </div>
+                <div class="coach-chat-head-actions">
+                  <label class="coach-scenario-field" for="coachScenarioSelect">
+                    <span>当前场景</span>
+                    <select id="coachScenarioSelect">
+                      <option value="团队会议">团队会议</option>
+                      <option value="冲突处理">冲突处理</option>
+                      <option value="决策时刻">决策时刻</option>
+                      <option value="压力管理">压力管理</option>
+                      <option value="自我表达">自我表达</option>
+                    </select>
+                  </label>
+                  <button id="deleteConversationBtn" class="ghost-btn danger-btn" type="button">删除当前会话</button>
+                </div>
+              </div>
+              <div id="coachNotice" class="status-note hidden"></div>
+              <div id="aiResponse" class="ai-response chat-stream conversation-stream"></div>
+              <div class="coach-composer">
+                <label for="goalInput">想对助手说的话</label>
+                <textarea id="goalInput" rows="3" placeholder="例如：我是 INFP，开会时不敢主动发言，怎么练会更自然？"></textarea>
+                <div class="composer-actions">
+                  <span class="muted">Enter 发送，Shift+Enter 换行</span>
+                  <button id="askAiBtn" class="primary-btn" type="button">发送</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card module-panel hidden" id="module-settings">
+          <div class="module-head">
+            <h2>设置</h2>
+            <span class="module-chip">基础设置 / API 设置</span>
+          </div>
+          <div class="analysis-grid settings-grid">
+            <article class="subcard">
+              <h3>网站基础设置</h3>
+              <p class="muted">这些设置会跟随你的账号保存。</p>
+              <label>主题模式</label>
+              <select id="settingsTheme">
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select>
+              <label>默认 AI 场景</label>
+              <select id="settingsScenario">
+                <option value="团队会议">团队会议</option>
+                <option value="冲突处理">冲突处理</option>
+                <option value="决策时刻">决策时刻</option>
+                <option value="压力管理">压力管理</option>
+                <option value="自我表达">自我表达</option>
+              </select>
+              <label>手动选择当前 MBTI</label>
+              <select id="settingsMbtiSelect"></select>
+              <p id="settingsMbtiSummary" class="muted">如果你已经知道自己的 16 型，可以直接在这里保存。</p>
+              <div class="settings-actions">
+                <button id="saveSettingsMbtiBtn" class="ghost-btn" type="button">保存当前 MBTI</button>
+              </div>
+              <div class="settings-actions">
+                <button id="saveBasicSettingsBtn" class="primary-btn" type="button">保存基础设置</button>
+                <button id="reopenOnboardingBtn" class="ghost-btn" type="button">重新显示引导</button>
+              </div>
+              <p class="muted">当前账号：<span id="settingsUsername">-</span></p>
+            </article>
+
+            <article class="subcard">
+              <h3>API 设置</h3>
+              <label>服务商</label>
+              <select id="apiServiceSelect">
+                <option value="openai">OpenAI</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="gemini">Gemini</option>
+              </select>
+              <label>接口类型</label>
+              <select id="apiProviderSelect">
+                <option value="openai_compatible">OpenAI 兼容接口</option>
+                <option value="gemini_native">Gemini 原生接口</option>
+              </select>
+              <label>Base URL</label>
+              <input id="apiBaseUrlInput" placeholder="例如：https://api.openai.com/v1 或 https://api.deepseek.com" />
+              <label>API Key</label>
+              <input id="apiKeyInput" type="password" placeholder="填入你的 API Key；留空则保留当前已保存的密钥" />
+              <label>模型名称</label>
+              <select id="apiModelSelect"></select>
+              <div class="settings-actions">
+                <button id="saveApiSettingsBtn" class="primary-btn" type="button">保存 API 设置</button>
+                <button id="testApiSettingsBtn" class="ghost-btn" type="button">测试 API 连通性</button>
+              </div>
+              <div id="apiTestStatus" class="status-note hidden"></div>
+            </article>
+          </div>
+        </section>
+        <section class="card module-panel hidden" id="module-progress">
+          <div class="module-head">
+            <h2>进度与激励</h2>
+            <span class="module-chip">计划簿优先</span>
+          </div>
+          <div class="progress-wrap">
+            <svg viewBox="0 0 120 120" class="progress-ring">
+              <circle cx="60" cy="60" r="50" class="ring-bg"></circle>
+              <circle cx="60" cy="60" r="50" class="ring-value" id="ringValue"></circle>
+            </svg>
+            <div class="progress-text" id="progressText">0%</div>
+          </div>
+
+          <div class="analysis-grid progress-summary-grid">
+            <article class="subcard">
+              <h3>计划簿总览</h3>
+              <div id="planOverviewCards" class="plan-overview-grid"></div>
+            </article>
+            <article class="subcard">
+              <h3>成就徽章</h3>
+              <div id="badgeList" class="badge-list"></div>
+            </article>
+          </div>
+
+          <div class="analysis-grid progress-plan-grid">
+            <article class="subcard">
+              <h3>进行中计划</h3>
+              <div id="activePlanList" class="plan-book-list"></div>
+            </article>
+            <article class="subcard">
+              <h3>已达成计划</h3>
+              <div id="achievedPlanList" class="plan-book-list"></div>
+            </article>
+          </div>
+
+          <article class="subcard">
+            <h3>近期活动</h3>
+            <ul id="activityList" class="activity-list"></ul>
+          </article>
+
+          <p id="milestoneText" class="muted"></p>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <div id="onboardingModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>欢迎来到愈格</h3>
+        <p>建议先体验 AI 助手或完成 MBTI 测试，再把建议沉淀为计划簿里的持续行动。</p>
+        <button id="closeOnboarding" class="primary-btn full" type="button">开始体验</button>
+      </div>
+    </div>
+
+    <script src="common.runtime.js"></script>
+    <script src="common.static.js"></script>
+    <script src="app.chat.js"></script>
+  </body>
+</html>
