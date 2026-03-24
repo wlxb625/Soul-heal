@@ -1,71 +1,30 @@
-# 愈格 GitHub Pages 静态版
+# 愈格 · GitHub Pages 静态版
 
-这是一个适配 **GitHub Pages** 的静态版本目录，来源于原项目 `personality-improvement-suite`，目标是让你可以把它直接上传到 GitHub，并通过静态网址访问。
+一个可直接部署到 **GitHub Pages** 的前端静态项目，用来做 MBTI 测试、性格分析、AI 改进建议与计划簿跟踪。
 
-## 目录位置
+这个版本不依赖后端服务，适合：
 
-```text
-g:\JAVASCRIPT\soul-heal-pages
-```
+- GitHub 作品展示
+- 课程作业 / 实验项目
+- 个人静态网站
+- 想快速复刻并二次开发的人
 
-## 这个版本和原版的区别
+## 在线方式
 
-原版依赖：
+上传到 GitHub 后，可以直接用 GitHub Pages 发布静态网址。
 
-- Node.js + Express
-- SQLite
-- 登录会话
-- 服务端 API
+## 功能
 
-所以不能直接跑在 GitHub Pages 上。
+- 邮箱 + 验证码 + 密码风险提示的本地注册登录
+- MBTI 56 题测试
+- 16 型人格手动选择
+- 性格分析与雷达图
+- AI 对话式建议
+- AI 结构化计划生成
+- 计划簿、打钩完成、达成阈值与成就展示
+- 深浅色模式
 
-这个静态版已经改成：
-
-- 页面仍然保留原有主界面风格
-- 数据改为浏览器 `localStorage` 本地保存
-- 注册 / 登录变成本地浏览器账号
-- MBTI、计划簿、进度、成就都保存在当前浏览器中
-- AI 助手改为前端直接调用用户自己填写的 API
-
-## 适用场景
-
-适合：
-
-- 课程作业
-- 个人作品展示
-- GitHub 仓库展示
-- 不想维护后端服务器的实验版本
-
-不适合：
-
-- 正式生产环境
-- 多用户共享同一数据库
-- 服务端安全保管 API Key
-
-## 重要限制
-
-### 1. 账号只是当前浏览器本地账号
-
-静态版的注册和登录只保存在当前浏览器的 `localStorage` 里。
-
-这意味着：
-
-- 换浏览器后数据不会自动同步
-- 清空浏览器数据后，账号和记录会丢失
-
-### 2. API Key 会保存在浏览器本地
-
-因为 GitHub Pages 没有后端，所以用户填写的 API Key 只能保存在浏览器本地。
-
-这适合个人实验，但不适合正式商业项目。
-
-### 3. 第三方模型接口需要支持浏览器跨域请求
-
-静态版的 AI 助手会直接从浏览器请求模型接口。
-
-如果某个服务商不允许浏览器跨域调用，AI 助手可能无法正常工作。
-
-## 主要文件
+## 项目结构
 
 ```text
 soul-heal-pages/
@@ -78,98 +37,111 @@ soul-heal-pages/
 └─ README.md
 ```
 
-其中：
+说明：
 
-- `common.runtime.js`：保留原项目的公共工具和题库
-- `common.static.js`：覆盖后端接口，改成浏览器本地存储和前端直连 API
-- `app.chat.js`：继续复用原来的主交互逻辑
+- `index.html`：页面入口
+- `styles.css`：样式文件
+- `app.chat.js`：主要交互逻辑
+- `common.runtime.js`：原项目通用能力和题库
+- `common.static.js`：静态版适配层，负责本地存储、静态登录和前端直连 API
 
-## 如何上传到 GitHub
+## 如何在自己电脑上复刻
 
-### 方式一：新建一个专门的 Pages 仓库
+### 方式一：直接下载 ZIP
 
-推荐直接新建一个新仓库，例如：
+1. 打开这个仓库
+2. 点击 `Code`
+3. 点击 `Download ZIP`
+4. 解压到本地
 
-```text
-Soul-heal-pages
-```
-
-然后把这个文件夹里的内容上传到仓库根目录。
-
-本地命令示例：
+### 方式二：使用 Git 克隆
 
 ```bash
-cd g:\JAVASCRIPT\soul-heal-pages
-git init
-git add .
-git commit -m "init github pages version"
-git branch -M main
-git remote add origin https://github.com/你的用户名/Soul-heal-pages.git
-git push -u origin main
+git clone https://github.com/你的用户名/你的仓库名.git
+cd 你的仓库名
 ```
 
-### 方式二：放进现有仓库的 `docs/` 目录
+## 如何在自己电脑上运行
 
-如果你想继续用现在的仓库，也可以把这个静态版目录内容放到仓库的 `docs/` 目录，然后在 GitHub Pages 里选择从 `main /docs` 发布。
+这是一个静态项目，推荐用本地静态服务器启动。
 
-## 如何开启 GitHub Pages
+### 方法一：使用 VS Code Live Server
 
-上传完成后：
+1. 用 VS Code 打开项目
+2. 安装 `Live Server` 插件
+3. 右键 [index.html](./index.html)
+4. 选择 `Open with Live Server`
 
-1. 打开 GitHub 仓库页面
-2. 进入 `Settings`
-3. 找到 `Pages`
-4. 在 `Build and deployment` 中选择：
+### 方法二：使用 Node 启动静态服务
+
+如果电脑装了 Node.js，可以在项目目录执行：
+
+```bash
+npx serve .
+```
+
+或者：
+
+```bash
+npx http-server .
+```
+
+启动后在浏览器打开命令行里显示的本地地址。
+
+## 如何上传到 GitHub Pages
+
+### 方式一：直接把当前仓库作为 Pages 仓库
+
+1. 把本项目上传到 GitHub
+2. 打开仓库 `Settings`
+3. 进入 `Pages`
+4. 在 `Build and deployment` 里选择：
    - `Deploy from a branch`
-5. Branch 选：
+5. Branch 选择：
    - `main`
-6. Folder 选：
+6. Folder 选择：
    - `/ (root)`
-   - 如果你放在 `docs/`，就选 `/docs`
 7. 保存
 
-过一会儿 GitHub 会给你一个地址，通常类似：
+稍等几分钟后，GitHub 会生成类似下面的网址：
 
 ```text
 https://你的用户名.github.io/仓库名/
 ```
 
-## 访问时的注意点
+### 方式二：放到已有仓库的 `docs/` 目录
 
-如果你仓库名不是用户名主页仓库，那么页面地址一般会带仓库名路径，例如：
+如果你已经有一个仓库，也可以把这套文件放到 `docs/` 目录，然后在 GitHub Pages 里选择：
 
-```text
-https://你的用户名.github.io/Soul-heal-pages/
-```
+- Branch：`main`
+- Folder：`/docs`
 
-这个版本已经使用相对路径资源和 hash 模块切换，适合 GitHub Pages 目录访问。
+## 如何使用 AI 功能
 
-## 推荐使用方式
+1. 打开网站
+2. 注册本地账号
+3. 进入“设置”
+4. 填写你自己的：
+   - `Base URL`
+   - `API Key`
+   - `模型名称`
+5. 回到“AI 助手”开始使用
 
-1. 先在页面里注册一个本地账号
-2. 进入设置
-3. 填入你自己的 API 配置
-4. 再测试 AI 助手和计划簿功能
+## 需要注意的地方
 
-## 从原项目同步更新
+- 这是静态版，数据保存在浏览器 `localStorage`
+- 更换浏览器或清空浏览器数据后，账号和记录会丢失
+- 用户填写的 API Key 也是保存在当前浏览器本地
+- 某些 AI 服务如果不支持浏览器跨域请求，静态版可能无法直接调用
+- “邮箱验证码”目前是静态演示模式，会在页面提示验证码；如果要真实发邮件，需要额外接后端或邮件服务
 
-如果你后面在原项目里继续改样式或交互，可以手动把这些文件同步过来：
+## 二次开发建议
 
-- `public/index.html`
-- `public/styles.css`
-- `public/app.chat.js`
+如果你想继续扩展，可以优先改这些文件：
 
-静态版特有的文件是：
+- [index.html](./index.html)
+- [styles.css](./styles.css)
+- [app.chat.js](./app.chat.js)
+- [common.static.js](./common.static.js)
 
-- `common.static.js`
-- `.nojekyll`
-- 当前这份 `README.md`
-
-## 建议
-
-如果你只是想把项目放到 GitHub 上展示和实验，优先用这个静态版。
-
-如果你后面想做真正可长期使用的完整网站，再继续使用原版：
-
-- `Node.js + Express + SQLite`
-- Render / Railway / 阿里云服务器
+如果你需要完整后端版，可以参考原始项目的 Node.js + Express + SQLite 实现。
