@@ -66,13 +66,12 @@ const els = {
   authForm: document.getElementById("authForm"),
   authModeTitle: document.getElementById("authModeTitle"),
   authModeCopy: document.getElementById("authModeCopy"),
+  authAccountLabel: document.getElementById("authAccountLabel"),
   authUsername: document.getElementById("authUsername"),
-  authCodeWrap: document.getElementById("authCodeWrap"),
-  authCode: document.getElementById("authCode"),
-  authCodeHint: document.getElementById("authCodeHint"),
-  authSendCodeBtn: document.getElementById("authSendCodeBtn"),
+  authEmailWrap: document.getElementById("authEmailWrap"),
+  authEmail: document.getElementById("authEmail"),
   authPassword: document.getElementById("authPassword"),
-  authRiskNote: document.getElementById("authRiskNote"),
+  authPasswordHint: document.getElementById("authPasswordHint"),
   authConfirmWrap: document.getElementById("authConfirmWrap"),
   authConfirm: document.getElementById("authConfirm"),
   authSubmit: document.getElementById("authSubmit"),
@@ -147,7 +146,7 @@ const els = {
   apiProviderSelect: document.getElementById("apiProviderSelect"),
   apiBaseUrlInput: document.getElementById("apiBaseUrlInput"),
   apiKeyInput: document.getElementById("apiKeyInput"),
-  apiModelSelect: document.getElementById("apiModelSelect"),
+  apiModelInput: document.getElementById("apiModelInput"),
   saveApiSettingsBtn: document.getElementById("saveApiSettingsBtn"),
   testApiSettingsBtn: document.getElementById("testApiSettingsBtn"),
   apiTestStatus: document.getElementById("apiTestStatus"),
@@ -195,12 +194,7 @@ function bindEvents() {
     updateAuthModeUI();
   });
 
-  els.authSendCodeBtn.addEventListener("click", handleSendAuthCode);
   els.authForm.addEventListener("submit", handleAuthSubmit);
-  els.authPassword.addEventListener("input", renderPasswordRisk);
-  els.authUsername.addEventListener("input", () => {
-    if (authMode === "register") renderPasswordRisk();
-  });
 
   els.moduleNav.querySelectorAll("[data-module]").forEach((button) => {
     button.addEventListener("click", () => switchModule(button.dataset.module));
@@ -347,7 +341,7 @@ function bindEvents() {
     applyApiServiceSelection(els.apiServiceSelect.value, els.apiProviderSelect.value, "interface");
     cancelPendingApiTest("已取消当前检测，请确认新的接口类型后重新测试。");
   });
-  els.apiModelSelect.addEventListener("change", () => {
+  els.apiModelInput.addEventListener("input", () => {
     cancelPendingApiTest("已取消当前检测，请确认新的模型后重新测试。");
   });
 }
@@ -373,95 +367,64 @@ function updateAuthModeUI() {
   const isLogin = authMode === "login";
   els.authModeTitle.textContent = isLogin ? "登录" : "注册";
   els.authModeCopy.textContent = isLogin
-    ? "输入邮箱、密码和验证码，安全进入你的专属成长空间。"
-    : "使用邮箱注册并完成验证，安全保存测试、计划与 AI 历史。";
+    ? "输入用户名或邮箱和密码，进入你的专属成长空间。"
+    : "使用邮箱创建你的愈格账号，保存测试、任务与 AI 历史。";
+  els.authAccountLabel.textContent = isLogin ? "用户名或邮箱" : "用户名";
+  els.authUsername.placeholder = isLogin ? "请输入用户名或邮箱" : "请输入用户名";
+  els.authEmailWrap.classList.toggle("hidden", isLogin);
+  els.authEmail.required = !isLogin;
   els.authSubmit.textContent = isLogin ? "登录" : "注册并进入";
   els.authTogglePrompt.textContent = isLogin ? "还没有账号？" : "已经有账号了？";
   els.authToggleBtn.textContent = isLogin ? "立即注册" : "返回登录";
+  els.authPasswordHint.classList.toggle("hidden", isLogin);
   els.authConfirmWrap.classList.toggle("hidden", isLogin);
   els.authConfirm.required = !isLogin;
-  els.authSendCodeBtn.textContent = isLogin ? "发送登录验证码" : "发送注册验证码";
-  els.authCodeHint.textContent = isLogin
-    ? "静态演示版会在页面提示登录验证码，正式邮箱发送需要后端服务支持。"
-    : "静态演示版会在页面提示注册验证码，正式邮箱发送需要后端服务支持。";
-  els.authUsername.setAttribute("autocomplete", "email");
+  els.authUsername.setAttribute("autocomplete", isLogin ? "username" : "username");
   els.authPassword.setAttribute("autocomplete", isLogin ? "current-password" : "new-password");
   els.authPassword.setAttribute("placeholder", isLogin ? "请输入密码" : "请设置密码");
-  els.authRiskNote.classList.toggle("hidden", isLogin);
-  renderPasswordRisk();
 }
 
 function clearAuthForm() {
   els.authForm.reset();
-  els.authRiskNote.textContent = "";
-  els.authRiskNote.className = "auth-risk-note hidden";
-}
-
-function renderPasswordRisk() {
-  if (authMode !== "register") {
-    els.authRiskNote.textContent = "";
-    els.authRiskNote.className = "auth-risk-note hidden";
-    return;
-  }
-  const password = els.authPassword.value;
-  if (!password) {
-    els.authRiskNote.textContent = "密码建议至少 8 位，包含大小写字母、数字和特殊字符，并避免使用邮箱名前缀。";
-    els.authRiskNote.className = "auth-risk-note info";
-    return;
-  }
-  const assessment = app.assessPasswordRisk(password, els.authUsername.value.trim());
-  const detail = assessment.issues.length ? ` 当前建议：${assessment.issues.slice(0, 3).join("，")}。` : "";
-  els.authRiskNote.textContent = `${assessment.level}：${assessment.summary}${detail}`;
-  els.authRiskNote.className = `auth-risk-note ${assessment.ok ? "success" : assessment.level === "中风险" ? "warning" : "error"}`;
-}
-
-async function handleSendAuthCode() {
-  const email = els.authUsername.value.trim();
-  if (!email) {
-    app.notify("请先输入邮箱地址");
-    return;
-  }
-  const purpose = authMode === "login" ? "login" : "register";
-  els.authSendCodeBtn.disabled = true;
-  els.authSendCodeBtn.textContent = "发送中...";
-  try {
-    const result = await app.sendAuthCode(email, purpose);
-    app.notify(`静态演示验证码：${result.previewCode}（10 分钟内有效）`);
-  } catch (error) {
-    app.notify(error.message || "发送验证码失败");
-  } finally {
-    els.authSendCodeBtn.disabled = false;
-    els.authSendCodeBtn.textContent = authMode === "login" ? "发送登录验证码" : "发送注册验证码";
-  }
 }
 
 async function handleAuthSubmit(event) {
   event.preventDefault();
 
-  const email = els.authUsername.value.trim();
-  const code = els.authCode.value.trim();
+  const account = els.authUsername.value.trim();
+  const email = els.authEmail.value.trim();
   const password = els.authPassword.value;
   const confirm = els.authConfirm.value;
+  const isLogin = authMode === "login";
 
-  if (!email || !password || !code) {
+  if (!account || !password || (!isLogin && !email)) {
     app.notify("请填写完整信息");
     return;
   }
 
-  if (authMode === "register" && password !== confirm) {
+  if (!isLogin && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    app.notify("请输入有效的邮箱地址");
+    return;
+  }
+
+  if (!isLogin && (password.length < 8 || password.length > 64 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password))) {
+    app.notify("密码需为8到64位，并同时包含字母和数字");
+    return;
+  }
+
+  if (!isLogin && password !== confirm) {
     app.notify("两次输入的密码不一致");
     return;
   }
 
-  const isLogin = authMode === "login";
   els.authSubmit.disabled = true;
   els.authSubmit.textContent = isLogin ? "登录中..." : "注册中...";
 
   try {
     if (isLogin) {
-      await app.login(email, password, code);
+      await app.login(account, password);
     } else {
-      await app.register(email, password, code);
+      await app.register(account, email, password);
     }
   } catch (error) {
     app.notify(error.message || (isLogin ? "登录失败" : "注册失败"));
@@ -1837,23 +1800,10 @@ function getApiConfigForSelection(serviceKey, providerValue) {
     : serviceConfig.compatible;
 }
 
-function renderApiModelOptions(serviceKey, providerValue, selectedModel = "") {
+function renderApiModelValue(serviceKey, providerValue, selectedModel = "") {
   const config = getApiConfigForSelection(serviceKey, providerValue);
-  const models = Array.isArray(config.models) ? config.models : [config.model];
   const normalizedSelected = String(selectedModel || "").trim();
-  const options = models.slice();
-
-  if (normalizedSelected && !options.includes(normalizedSelected)) {
-    options.unshift(normalizedSelected);
-  }
-
-  els.apiModelSelect.innerHTML = options
-    .map((modelName) => {
-      const selected = modelName === normalizedSelected || (!normalizedSelected && modelName === config.model) ? " selected" : "";
-      const suffix = !models.includes(modelName) ? "（当前自定义）" : "";
-      return `<option value="${app.escapeHTML(modelName)}"${selected}>${app.escapeHTML(modelName)}${suffix}</option>`;
-    })
-    .join("");
+  els.apiModelInput.value = normalizedSelected || config.model || "gpt-4.1-mini";
 }
 
 function resolveApiServiceSelection(serviceKey, providerValue, changedBy = "service") {
@@ -1889,7 +1839,7 @@ function applyApiServiceSelection(serviceKey, providerValue, changedBy = "servic
   syncApiProviderOptions(next.serviceKey);
   els.apiProviderSelect.value = next.provider;
   els.apiBaseUrlInput.value = next.baseUrl;
-  renderApiModelOptions(next.serviceKey, next.provider, next.model);
+  renderApiModelValue(next.serviceKey, next.provider, next.model);
   apiTestNotice = null;
   renderStatusNote(els.apiTestStatus, apiTestNotice);
   if (!options.silent) {
@@ -1942,7 +1892,7 @@ async function saveApiSettings() {
   const provider = els.apiProviderSelect.value;
   const baseUrl = els.apiBaseUrlInput.value.trim();
   const apiKey = els.apiKeyInput.value.trim();
-  const model = els.apiModelSelect.value.trim();
+  const model = els.apiModelInput.value.trim();
 
   els.saveApiSettingsBtn.disabled = true;
   els.saveApiSettingsBtn.textContent = "保存中...";
@@ -1968,7 +1918,7 @@ async function testAiSettings() {
   const provider = els.apiProviderSelect.value;
   const baseUrl = els.apiBaseUrlInput.value.trim();
   const apiKey = els.apiKeyInput.value.trim();
-  const model = els.apiModelSelect.value.trim();
+  const model = els.apiModelInput.value.trim();
 
   cancelPendingApiTest();
   const controller = new AbortController();
@@ -2040,7 +1990,7 @@ function renderSettings() {
     syncApiProviderOptions(els.apiServiceSelect.value);
     els.apiProviderSelect.value = aiSettings.provider || "openai_compatible";
     els.apiBaseUrlInput.value = aiSettings.baseUrl || "";
-    renderApiModelOptions(els.apiServiceSelect.value, els.apiProviderSelect.value, aiSettings.model || "gpt-4.1-mini");
+    renderApiModelValue(els.apiServiceSelect.value, els.apiProviderSelect.value, aiSettings.model || "gpt-4.1-mini");
   }
   els.settingsMbtiSummary.textContent = hasCompletedMbtiState(state)
     ? `当前结果来自正式测试：${state.mbti}（信度 ${state.reliability}% / 匹配度 ${state.match}%）`

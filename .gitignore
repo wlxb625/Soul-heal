@@ -1,2 +1,10 @@
 Thumbs.db
 .DS_Store
+node_modules/
+.netlify/
+.env
+data/*.db
+data/*.db-*
+tmp-server-out.log
+tmp-server-err.log
+npm-debug.log*

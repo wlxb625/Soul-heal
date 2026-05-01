@@ -1,0 +1,33 @@
+[build]
+  command = "node scripts/write-runtime-config.js"
+  publish = "."
+
+[[redirects]]
+  from = "/mbti"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/analysis"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/coach"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/progress"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/settings"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"

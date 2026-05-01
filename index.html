@@ -32,22 +32,18 @@
           </div>
 
           <form id="authForm" class="auth-form">
-            <label>邮箱</label>
+            <label id="authAccountLabel">用户名</label>
             <div class="auth-field">
               <span class="auth-field-icon">◌</span>
-              <input id="authUsername" type="email" autocomplete="email" placeholder="请输入邮箱地址" required />
+              <input id="authUsername" type="text" autocomplete="username" placeholder="请输入用户名" required />
             </div>
 
-            <div id="authCodeWrap">
-              <div class="auth-inline-head">
-                <label>邮箱验证码</label>
-                <button id="authSendCodeBtn" class="text-btn auth-inline-btn" type="button">发送登录验证码</button>
-              </div>
+            <div id="authEmailWrap" class="hidden">
+              <label>邮箱</label>
               <div class="auth-field">
-                <span class="auth-field-icon">#</span>
-                <input id="authCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="请输入 6 位验证码" required />
+                <span class="auth-field-icon">@</span>
+                <input id="authEmail" type="email" autocomplete="email" placeholder="请输入邮箱" />
               </div>
-              <p id="authCodeHint" class="muted auth-inline-hint">静态演示版会在页面提示验证码，正式邮箱发送需要后端服务支持。</p>
             </div>
 
             <label>密码</label>
@@ -55,7 +51,7 @@
               <span class="auth-field-icon">⌘</span>
               <input id="authPassword" type="password" autocomplete="current-password" placeholder="请输入密码" required />
             </div>
-            <div id="authRiskNote" class="auth-risk-note hidden"></div>
+            <p id="authPasswordHint" class="input-hint hidden">密码需为8到64位，并同时包含字母和数字。</p>
 
             <div id="authConfirmWrap" class="hidden">
               <label>确认密码</label>
@@ -331,7 +327,7 @@
               <label>API Key</label>
               <input id="apiKeyInput" type="password" placeholder="填入你的 API Key；留空则保留当前已保存的密钥" />
               <label>模型名称</label>
-              <select id="apiModelSelect"></select>
+              <input id="apiModelInput" type="text" autocomplete="off" placeholder="例如：gpt-4.1-mini、deepseek-chat、gemini-2.5-flash" />
               <div class="settings-actions">
                 <button id="saveApiSettingsBtn" class="primary-btn" type="button">保存 API 设置</button>
                 <button id="testApiSettingsBtn" class="ghost-btn" type="button">测试 API 连通性</button>
@@ -395,8 +391,8 @@
       </div>
     </div>
 
+    <script src="runtime-config.js"></script>
     <script src="common.runtime.js"></script>
-    <script src="common.static.js"></script>
     <script src="app.chat.js"></script>
   </body>
 </html>

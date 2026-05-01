@@ -1,0 +1,20 @@
+{
+  "name": "personality-improvement-suite",
+  "version": "1.0.0",
+  "description": "MBTI + personality analysis + AI coaching + progress gamification app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "keywords": ["mbti", "personality", "ai-coach"],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "openai": "^4.104.0"
+  }
+}

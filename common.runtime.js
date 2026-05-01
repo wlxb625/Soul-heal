@@ -394,10 +394,18 @@ function dispatchAuthRequired() {
   window.dispatchEvent(new CustomEvent("app:auth-required"));
 }
 
+function getApiUrl(url) {
+  const baseUrl = String(window.YUGE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (!baseUrl || /^https?:\/\//i.test(url)) {
+    return url;
+  }
+  return `${baseUrl}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
 async function apiFetch(url, options = {}) {
   const requestInit = {
     method: options.method || "GET",
-    credentials: "same-origin",
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(options.headers || {})
@@ -412,12 +420,12 @@ async function apiFetch(url, options = {}) {
 
   let response;
   try {
-    response = await fetch(url, requestInit);
+    response = await fetch(getApiUrl(url), requestInit);
   } catch (cause) {
     if (cause && (cause.name === "AbortError" || cause.code === 20)) {
       throw cause;
     }
-    const networkError = new Error("无法连接到服务端，请先运行 npm start 并访问 http://localhost:3000");
+    const networkError = new Error("无法连接到服务端，请确认后端服务已启动，或检查 runtime-config.js 中的 YUGE_API_BASE_URL");
     networkError.cause = cause;
     throw networkError;
   }
@@ -525,10 +533,10 @@ async function maybeImportLegacyLocalData() {
   return payload;
 }
 
-async function register(username, password) {
+async function register(username, email, password) {
   const data = await apiFetch("/api/auth/register", {
     method: "POST",
-    body: { username, password },
+    body: { username, email, password },
     allowUnauthorized: true
   });
 
@@ -550,10 +558,10 @@ async function register(username, password) {
   return data;
 }
 
-async function login(username, password) {
+async function login(account, password) {
   const data = await apiFetch("/api/auth/login", {
     method: "POST",
-    body: { username, password },
+    body: { account, password },
     allowUnauthorized: true
   });
 
