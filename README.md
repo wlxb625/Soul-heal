@@ -1,83 +1,85 @@
-# 愈格 · Personality Improvement Suite
+# 愈格 · AI Personality Coach
 
-愈格是一个围绕 MBTI 测试、性格分析、AI 改进建议、计划簿执行与成长追踪的 Web 项目。
+愈格是一个面向个人成长的 Web 应用，围绕 MBTI 测试、性格分析、AI 对话建议、结构化行动计划和计划簿执行形成闭环。
 
-当前上线方案：
+线上地址：[https://yuge-personality-suite.netlify.app](https://yuge-personality-suite.netlify.app)
 
-- **Netlify** 托管前端静态站点
-- **Supabase Auth** 负责邮箱/密码注册登录
-- **Supabase Postgres** 保存每个用户的应用状态
-- 用户在设置页填写自己的 AI API Key 和模型名称
+当前部署方案：
 
-这个版本不需要 Render，也不需要银行卡。
+- **Netlify**：托管前端静态页面，并运行 AI 代理函数
+- **Supabase Auth**：邮箱注册、登录和会话管理
+- **Supabase Postgres**：保存每个用户的测试结果、AI 会话、计划簿和设置
+- **用户自带 AI Key**：在设置页填写公网 OpenAI 兼容接口，例如 DeepSeek
 
-## 功能
+项目不依赖 Render，也不需要银行卡。
+
+## 主要功能
 
 - 邮箱注册 / 登录
-- 注册密码强度校验
+- 注册邮箱格式校验和密码强度校验
 - MBTI 56 题测试
-- 16 型人格手动选择
-- 性格分析与雷达图
-- AI 改进建议与结构化计划
-- 计划簿、任务打钩、达成阈值与进度展示
-- 深浅色模式
-- 自定义 API Base URL、API Key、模型名称
+- 手动选择 16 型人格
+- 性格分析、可信度、匹配度和雷达画像
+- AI 助手读取性格特点、MBTI、当前场景和历史对话后给出建议
+- AI 回复结构化计划，可加入计划簿
+- 计划簿任务打钩、达成阈值、进度统计
+- 深色 / 浅色主题
+- 自定义 Base URL、API Key、模型名称
 
 ## 项目结构
 
 ```text
 personality-improvement-suite/
-├─ index.html
-├─ styles.css
-├─ app.chat.js
-├─ common.runtime.js
-├─ runtime-config.js
-├─ netlify.toml
-├─ scripts/
-│  └─ build-netlify.js
-├─ supabase/
-│  └─ schema.sql
-└─ test/
-   ├─ regression.test.js
-   └─ split-deploy.test.js
+├─ index.html                  # 单页应用入口
+├─ app.chat.js                 # 页面交互、渲染和模块切换
+├─ common.runtime.js           # Supabase 运行时、状态同步、AI 调用
+├─ styles.css                  # 页面样式
+├─ runtime-config.js           # 本地运行时配置占位文件
+├─ server.js                   # 本地开发后端
+├─ netlify.toml                # Netlify 构建、函数和路由配置
+├─ netlify/functions/coach.js  # 线上 AI 代理函数
+├─ scripts/build-netlify.js    # Netlify 构建脚本
+├─ supabase/schema.sql         # Supabase 数据表和 RLS 策略
+└─ test/                       # 回归测试
 ```
 
 ## 本地运行
+
+要求 Node.js 24。
 
 ```bash
 npm install
 npm start
 ```
 
-然后打开：
+打开：
 
 ```text
 http://localhost:3000
 ```
 
-本地不配置 Supabase 时，页面会继续访问同源后端，方便开发调试。
+本地开发时可以使用 `.env.example` 作为参考配置。没有配置 Supabase 时，项目仍可通过本地 `server.js` 调试基础功能。
 
 ## Supabase 配置
 
 1. 创建 Supabase 项目。
 2. 打开 Supabase SQL Editor。
-3. 执行 [supabase/schema.sql](./supabase/schema.sql)。
-4. 到 Project Settings -> API，复制：
+3. 执行 `supabase/schema.sql`。
+4. 打开 Project Settings -> API，复制：
    - Project URL
    - anon public key
-
-`app_states` 表启用了 RLS，每个用户只能读取和更新自己的状态。
-
-## Netlify 配置
-
-Netlify 构建配置在 [netlify.toml](./netlify.toml)。
-
-需要在 Netlify 项目里设置环境变量：
+5. 在 Netlify 环境变量中填写：
 
 ```text
-YUGE_SUPABASE_URL=https://你的项目.supabase.co
-YUGE_SUPABASE_ANON_KEY=你的 Supabase anon public key
+YUGE_SUPABASE_URL=https://your-project.supabase.co
+YUGE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
+
+`app_states` 表已启用 RLS，每个用户只能读取和更新自己的状态。
+
+## Netlify 部署
+
+Netlify 配置在 `netlify.toml`。
 
 构建命令：
 
@@ -91,18 +93,36 @@ node scripts/build-netlify.js
 dist
 ```
 
-构建脚本只会把前端必需文件复制到 `dist/`，并生成 `runtime-config.js`。
+线上 AI 请求通过 `/.netlify/functions/coach` 转发，浏览器不会直接请求模型厂商接口。
+
+手动部署命令：
+
+```bash
+npx netlify deploy --prod --build
+```
 
 ## AI 设置
 
-进入网站后：
+登录后进入“设置”，填写公网 AI 接口信息。
 
-1. 登录账号
-2. 进入“设置”
-3. 填写服务商、Base URL、API Key、模型名称
-4. 保存后回到“AI 助手”
+DeepSeek 推荐配置：
 
-注意：当前 Supabase 版本仍是用户自带 API Key 模式。API Key 会随用户状态保存到 Supabase。更严格的生产方案应改为 Netlify Function 或 Supabase Edge Function 代理 AI 请求，避免在浏览器侧直接处理密钥。
+```text
+服务商：OpenAI 兼容接口
+Base URL：https://api.deepseek.com/v1
+模型名称：deepseek-chat
+API Key：你的 DeepSeek API Key
+```
+
+不要把本地地址填到线上站点里，例如：
+
+```text
+http://127.0.0.1:8317/v1
+```
+
+Netlify 线上环境无法访问你电脑上的本地服务。
+
+如果 AI 助手提示模型响应超时，通常不是 URL 填错，而是模型回复超过了 Netlify Function 的执行时间限制。优先使用 `deepseek-chat`，避免使用较慢的推理模型。
 
 ## 验证
 
@@ -110,5 +130,22 @@ dist
 npm test
 node --check common.runtime.js
 node --check app.chat.js
+node --check netlify/functions/coach.js
 node --check scripts/build-netlify.js
+```
+
+## 常用命令
+
+```bash
+# 本地开发
+npm start
+
+# 跑测试
+npm test
+
+# 构建 Netlify 静态文件
+node scripts/build-netlify.js
+
+# 部署生产站
+npx netlify deploy --prod --build
 ```
