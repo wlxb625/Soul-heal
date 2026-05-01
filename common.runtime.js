@@ -503,6 +503,22 @@ function getApiUrl(url) {
   return `${baseUrl}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
+function normalizeApiErrorMessage(message, status) {
+  const text = String(message || "").replace(/\s+/g, " ").trim();
+  const lower = text.toLowerCase();
+  if (
+    status === 502 || status === 504 ||
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("inactivity timeout") ||
+    lower.includes("fetch failed") ||
+    lower.includes("failed to fetch")
+  ) {
+    return "AI 模型响应超时。你的公网 URL 可以使用，但 Netlify Function 超时了；请优先使用 deepseek-chat，或换更快模型后重试。";
+  }
+  return text;
+}
+
 async function apiFetch(url, options = {}) {
   const requestInit = {
     method: options.method || "GET",
@@ -526,6 +542,12 @@ async function apiFetch(url, options = {}) {
     if (cause && (cause.name === "AbortError" || cause.code === 20)) {
       throw cause;
     }
+    const networkMessage = normalizeApiErrorMessage(cause && cause.message);
+    if (networkMessage) {
+      const aiNetworkError = new Error(networkMessage);
+      aiNetworkError.cause = cause;
+      throw aiNetworkError;
+    }
     const networkError = new Error("无法连接到服务端，请确认后端服务已启动，或检查 runtime-config.js 中的 YUGE_API_BASE_URL");
     networkError.cause = cause;
     throw networkError;
@@ -544,7 +566,7 @@ async function apiFetch(url, options = {}) {
   }
 
   if (!response.ok) {
-    const error = new Error(data.message || `请求失败：${response.status}`);
+    const error = new Error(normalizeApiErrorMessage(data.message, response.status) || `请求失败：${response.status}`);
     error.status = response.status;
     error.payload = data;
 

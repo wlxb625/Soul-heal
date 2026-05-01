@@ -1,5 +1,6 @@
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const AI_TIMEOUT_MS = 24000;
 
 const STRUCTURED_PLAN_PROMPT = [
   "你是【愈格】软件的专属AI性格成长助手。",
@@ -8,7 +9,7 @@ const STRUCTURED_PLAN_PROMPT = [
   "JSON 结构必须是：{\"summary\":string,\"analysis\":string,\"plan_groups\":[{\"group_name\":string,\"group_description\":string,\"plans\":[{\"plan_name\":string,\"plan_description\":string,\"estimated_days\":number,\"completion_threshold\":number,\"tasks\":[{\"task_description\":string}]}]}]}",
   "summary 要先说明你读取到的性格特点和本次问题之间的关系。",
   "analysis 要指出用户在该场景里的核心卡点，必须结合 MBTI 或未完成测试状态来表达。",
-  "计划分组 2 到 4 组，每组 2 到 3 个计划，每个计划 3 到 6 个任务。",
+  "计划分组 1 到 2 组，每组 1 到 2 个计划，每个计划 3 个任务，保持简短。",
   "任务必须具体、可勾选、适合放入计划簿，不能写空泛口号。",
   "所有字段名必须使用英文；所有字段值必须使用中文。"
 ].join("\n");
@@ -62,8 +63,18 @@ async function readJsonResponseSafe(response) {
 }
 
 function extractErrorMessage(error) {
+  if (error?.name === "AbortError" || error?.name === "TimeoutError") {
+    return "模型响应超时。请优先使用 deepseek-chat，或稍后重试；如果仍然超时，需要换更快的模型或更长超时的后端。";
+  }
   const message = String(error?.error?.message || error?.message || "未知错误").trim();
   return message.replace(/\s+/g, " ").slice(0, 240);
+}
+
+function buildAiFetchOptions(options) {
+  return {
+    ...options,
+    signal: AbortSignal.timeout(AI_TIMEOUT_MS)
+  };
 }
 
 function extractOpenAiReply(payload) {
@@ -225,7 +236,7 @@ async function requestOpenAiCompatible(input, systemContext) {
   const prompt = input.isSettingsTest
     ? "你是一个 API 连通性测试助手。只回复一句中文短句，表示接口可以正常返回。"
     : STRUCTURED_PLAN_PROMPT;
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetch(`${baseUrl}/chat/completions`, buildAiFetchOptions({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -234,14 +245,14 @@ async function requestOpenAiCompatible(input, systemContext) {
     body: JSON.stringify({
       model: input.model || "gpt-4.1-mini",
       temperature: 0.65,
-      max_tokens: input.isSettingsTest ? 80 : 1200,
+      max_tokens: input.isSettingsTest ? 80 : 700,
       messages: [
         { role: "system", content: prompt },
         ...(input.isSettingsTest ? [] : [{ role: "system", content: `性格特点与上下文：\n${systemContext}` }]),
         { role: "user", content: input.message }
       ]
     })
-  });
+  }));
   const payload = await readJsonResponseSafe(response);
   if (!response.ok) throw new Error(extractErrorMessage(payload));
   return { rawReply: extractOpenAiReply(payload), baseUrl };
@@ -252,15 +263,15 @@ async function requestGeminiNative(input, systemContext) {
   const prompt = input.isSettingsTest
     ? "你是一个 API 连通性测试助手。只回复一句中文短句，表示接口可以正常返回。"
     : STRUCTURED_PLAN_PROMPT;
-  const response = await fetch(`${baseUrl}/models/${encodeURIComponent(input.model || "gemini-1.5-flash")}:generateContent?key=${encodeURIComponent(input.apiKey)}`, {
+  const response = await fetch(`${baseUrl}/models/${encodeURIComponent(input.model || "gemini-1.5-flash")}:generateContent?key=${encodeURIComponent(input.apiKey)}`, buildAiFetchOptions({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: input.isSettingsTest ? prompt : `${prompt}\n\n性格特点与上下文：\n${systemContext}` }] },
       contents: [{ role: "user", parts: [{ text: input.message }] }],
-      generationConfig: { temperature: 0.65, maxOutputTokens: input.isSettingsTest ? 80 : 1200 }
+      generationConfig: { temperature: 0.65, maxOutputTokens: input.isSettingsTest ? 80 : 700 }
     })
-  });
+  }));
   const payload = await readJsonResponseSafe(response);
   if (!response.ok) throw new Error(extractErrorMessage(payload));
   return { rawReply: extractGeminiReply(payload), baseUrl };

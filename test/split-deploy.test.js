@@ -81,8 +81,22 @@ test("Netlify coach function falls back when the model returns non-JSON advice",
 test("Netlify coach function keeps DeepSeek connectivity tests lightweight", () => {
   const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
   assert.match(fn, /isSettingsTest/);
-  assert.match(fn, /max_tokens: input\.isSettingsTest \? 80 : 1200/);
+  assert.match(fn, /max_tokens: input\.isSettingsTest \? 80 : 700/);
   assert.match(fn, /只回复一句中文短句/);
+});
+
+test("Netlify coach function fails before platform timeout with clear timeout errors", () => {
+  const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
+  assert.match(fn, /AbortSignal\.timeout/);
+  assert.match(fn, /AI_TIMEOUT_MS/);
+  assert.match(fn, /模型响应超时/);
+});
+
+test("frontend rewrites Netlify timeout responses into actionable AI guidance", () => {
+  const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
+  assert.match(common, /normalizeApiErrorMessage/);
+  assert.match(common, /Netlify Function 超时/);
+  assert.match(common, /deepseek-chat/);
 });
 
 test("Supabase schema stores one private app state per authenticated user", () => {
