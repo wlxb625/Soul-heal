@@ -625,6 +625,7 @@ async function invokeSupabaseAiSettingsTest(updates, options = {}) {
       baseUrl: candidate.baseUrl,
       model: candidate.model,
       apiKey: candidate.apiKey,
+      purpose: "settings-test",
       scenario: "AI 接口测试",
       message: "请基于我的性格特点生成一条很短的测试建议。",
       details: "",

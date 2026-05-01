@@ -222,6 +222,9 @@ function buildSystemContext(input) {
 
 async function requestOpenAiCompatible(input, systemContext) {
   const baseUrl = normalizeBaseUrl("openai_compatible", input.baseUrl);
+  const prompt = input.isSettingsTest
+    ? "你是一个 API 连通性测试助手。只回复一句中文短句，表示接口可以正常返回。"
+    : STRUCTURED_PLAN_PROMPT;
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -231,9 +234,10 @@ async function requestOpenAiCompatible(input, systemContext) {
     body: JSON.stringify({
       model: input.model || "gpt-4.1-mini",
       temperature: 0.65,
+      max_tokens: input.isSettingsTest ? 80 : 1200,
       messages: [
-        { role: "system", content: STRUCTURED_PLAN_PROMPT },
-        { role: "system", content: `性格特点与上下文：\n${systemContext}` },
+        { role: "system", content: prompt },
+        ...(input.isSettingsTest ? [] : [{ role: "system", content: `性格特点与上下文：\n${systemContext}` }]),
         { role: "user", content: input.message }
       ]
     })
@@ -245,13 +249,16 @@ async function requestOpenAiCompatible(input, systemContext) {
 
 async function requestGeminiNative(input, systemContext) {
   const baseUrl = normalizeBaseUrl("gemini_native", input.baseUrl);
+  const prompt = input.isSettingsTest
+    ? "你是一个 API 连通性测试助手。只回复一句中文短句，表示接口可以正常返回。"
+    : STRUCTURED_PLAN_PROMPT;
   const response = await fetch(`${baseUrl}/models/${encodeURIComponent(input.model || "gemini-1.5-flash")}:generateContent?key=${encodeURIComponent(input.apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: `${STRUCTURED_PLAN_PROMPT}\n\n性格特点与上下文：\n${systemContext}` }] },
+      systemInstruction: { parts: [{ text: input.isSettingsTest ? prompt : `${prompt}\n\n性格特点与上下文：\n${systemContext}` }] },
       contents: [{ role: "user", parts: [{ text: input.message }] }],
-      generationConfig: { temperature: 0.65 }
+      generationConfig: { temperature: 0.65, maxOutputTokens: input.isSettingsTest ? 80 : 1200 }
     })
   });
   const payload = await readJsonResponseSafe(response);
@@ -274,6 +281,7 @@ exports.handler = async (event) => {
   input.message = cleanText(input.message);
   input.apiKey = cleanText(input.apiKey);
   input.provider = input.provider === "gemini_native" ? "gemini_native" : "openai_compatible";
+  input.isSettingsTest = input.purpose === "settings-test";
 
   if (!input.message) return json(400, { message: "请先输入你想对助手说的话" });
   if (!input.apiKey) return json(400, { message: "请先到设置里填写 API Key" });
@@ -283,6 +291,17 @@ exports.handler = async (event) => {
     const aiResult = input.provider === "gemini_native"
       ? await requestGeminiNative(input, systemContext)
       : await requestOpenAiCompatible(input, systemContext);
+    if (input.isSettingsTest) {
+      return json(200, {
+        source: "custom-api",
+        mode: "settings-test",
+        provider: input.provider,
+        model: input.model,
+        baseUrl: aiResult.baseUrl,
+        reply: cleanText(aiResult.rawReply, "AI 接口测试成功"),
+        structuredPlan: buildFallbackStructuredPlan(input, aiResult.rawReply)
+      });
+    }
     const planResult = parsePlanOrFallback(aiResult.rawReply, input);
 
     return json(200, {

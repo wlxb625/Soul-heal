@@ -53,6 +53,7 @@ test("Supabase coach requests call the Netlify AI function with personality cont
 test("Supabase API test uses the same real AI function as coach", () => {
   const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
   assert.match(common, /invokeSupabaseAiSettingsTest/);
+  assert.match(common, /purpose: "settings-test"/);
   assert.doesNotMatch(common, /Supabase 模式已保存配置；正式调用会使用你填写的 API Key。/);
 });
 
@@ -75,6 +76,13 @@ test("Netlify coach function falls back when the model returns non-JSON advice",
   assert.match(fn, /buildFallbackStructuredPlan/);
   assert.match(fn, /parsePlanOrFallback/);
   assert.match(fn, /formatWarning/);
+});
+
+test("Netlify coach function keeps DeepSeek connectivity tests lightweight", () => {
+  const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
+  assert.match(fn, /isSettingsTest/);
+  assert.match(fn, /max_tokens: input\.isSettingsTest \? 80 : 1200/);
+  assert.match(fn, /只回复一句中文短句/);
 });
 
 test("Supabase schema stores one private app state per authenticated user", () => {
