@@ -130,6 +130,79 @@ function normalizeStructuredPlan(candidate) {
   return groups.length ? { plan_groups: groups } : null;
 }
 
+function formatWarning(rawReply) {
+  const text = cleanText(rawReply, "模型已返回内容，但没有按计划 JSON 格式输出。");
+  return text.length > 260 ? `${text.slice(0, 260)}...` : text;
+}
+
+function buildFallbackStructuredPlan(input, rawReply) {
+  const scenario = cleanText(input.scenario, "当前场景");
+  const message = cleanText(input.message, "当前问题");
+  const modelAdvice = formatWarning(rawReply);
+  return {
+    plan_groups: [
+      {
+        group_name: "先理解问题",
+        group_description: "先把模型给出的建议和你的性格特点对应起来，避免直接套模板行动。",
+        plans: [
+          {
+            plan_name: `${scenario}分析整理`,
+            plan_description: modelAdvice,
+            estimated_days: 7,
+            completion_threshold: 0.67,
+            tasks: [
+              { task_description: `写下这次问题的具体表现：${message}` },
+              { task_description: "标出其中最受性格特点影响的一处卡点" },
+              { task_description: "把模型建议里最容易执行的一条改成今天能做的小动作" }
+            ]
+          }
+        ]
+      },
+      {
+        group_name: "低成本行动",
+        group_description: "先用小动作验证建议是否适合你，再逐步增加难度。",
+        plans: [
+          {
+            plan_name: "一次微练习",
+            plan_description: "选择一个压力较低的场景做最小尝试。",
+            estimated_days: 7,
+            completion_threshold: 0.67,
+            tasks: [
+              { task_description: "选择一个 10 分钟内可以完成的行动" },
+              { task_description: "行动前写下自己最担心的一个点" },
+              { task_description: "行动后记录实际结果和下一次调整" }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function parsePlanOrFallback(rawReply, input) {
+  try {
+    const parsed = parseJsonObject(rawReply);
+    const structuredPlan = normalizeStructuredPlan(parsed);
+    if (structuredPlan) {
+      return {
+        reply: cleanText(parsed.summary, "我已结合你的性格特点和当前问题整理出一套建议。"),
+        analysis: cleanText(parsed.analysis),
+        structuredPlan,
+        usedFallback: false
+      };
+    }
+  } catch (error) {
+    // Fall through to preserve the model's natural-language advice.
+  }
+
+  return {
+    reply: "模型已经接通，但没有按计划 JSON 格式输出；我先把它转成可执行计划。",
+    analysis: formatWarning(rawReply),
+    structuredPlan: buildFallbackStructuredPlan(input, rawReply),
+    usedFallback: true
+  };
+}
+
 function buildSystemContext(input) {
   const context = input.personalityContext || {};
   const history = Array.isArray(input.historyMessages) ? input.historyMessages.slice(-8) : [];
@@ -210,9 +283,7 @@ exports.handler = async (event) => {
     const aiResult = input.provider === "gemini_native"
       ? await requestGeminiNative(input, systemContext)
       : await requestOpenAiCompatible(input, systemContext);
-    const parsed = parseJsonObject(aiResult.rawReply);
-    const structuredPlan = normalizeStructuredPlan(parsed);
-    if (!structuredPlan) throw new Error("AI 返回的计划格式不完整");
+    const planResult = parsePlanOrFallback(aiResult.rawReply, input);
 
     return json(200, {
       source: "custom-api",
@@ -220,9 +291,10 @@ exports.handler = async (event) => {
       provider: input.provider,
       model: input.model,
       baseUrl: aiResult.baseUrl,
-      reply: cleanText(parsed.summary, "我已结合你的性格特点和当前问题整理出一套建议。"),
-      analysis: cleanText(parsed.analysis),
-      structuredPlan
+      reply: planResult.reply,
+      analysis: planResult.analysis,
+      structuredPlan: planResult.structuredPlan,
+      formatWarning: planResult.usedFallback
     });
   } catch (error) {
     return json(502, { message: `你的 AI 接口请求失败：${extractErrorMessage(error)}` });

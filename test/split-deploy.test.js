@@ -70,6 +70,13 @@ test("Netlify coach function normalizes full OpenAI-compatible endpoint URLs", (
   assert.match(fn, /chat\\\/completions/);
 });
 
+test("Netlify coach function falls back when the model returns non-JSON advice", () => {
+  const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
+  assert.match(fn, /buildFallbackStructuredPlan/);
+  assert.match(fn, /parsePlanOrFallback/);
+  assert.match(fn, /formatWarning/);
+});
+
 test("Supabase schema stores one private app state per authenticated user", () => {
   const sql = fs.readFileSync(path.join(rootDir, "supabase", "schema.sql"), "utf8");
   assert.match(sql, /create table if not exists public\.app_states/);
