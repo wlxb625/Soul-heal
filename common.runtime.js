@@ -998,7 +998,8 @@ async function requestCoach(input) {
   if (getSupabaseClient()) {
     const now = new Date().toISOString();
     const scenario = sanitizeScenario(input && input.scenario);
-    const goal = String(input && input.goal ? input.goal : "").trim() || "提升表达与行动一致性";
+    const userText = String(input && input.message ? input.message : input && input.goal ? input.goal : "").trim();
+    const goal = String(input && input.goal ? input.goal : userText).trim() || "提升表达与行动一致性";
     const details = String(input && input.details ? input.details : "").trim();
     const historyId = cryptoRandomId();
     const conversationId = state.activeAiConversationId || cryptoRandomId();
@@ -1046,7 +1047,7 @@ async function requestCoach(input) {
       };
       if (existingIndex >= 0) conversations[existingIndex] = conversation;
       else conversations.unshift(conversation);
-      const userMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "user", text: goal, details, createdAt: now };
+      const userMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "user", text: userText || goal, details, createdAt: now };
       const assistantMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "assistant", text: response.summary, structuredPlan, createdAt: now };
       return {
         ...current,

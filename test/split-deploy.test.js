@@ -35,6 +35,12 @@ test("frontend can initialize Supabase from runtime config", () => {
   assert.match(common, /window\.YUGE_SUPABASE_ANON_KEY/);
 });
 
+test("Supabase coach requests preserve the user's chat message", () => {
+  const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
+  assert.match(common, /const userText = String\(input && input\.message \? input\.message : input && input\.goal \? input\.goal : ""\)\.trim\(\);/);
+  assert.match(common, /role: "user", text: userText/);
+});
+
 test("Supabase schema stores one private app state per authenticated user", () => {
   const sql = fs.readFileSync(path.join(rootDir, "supabase", "schema.sql"), "utf8");
   assert.match(sql, /create table if not exists public\.app_states/);
