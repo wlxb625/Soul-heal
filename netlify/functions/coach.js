@@ -37,7 +37,7 @@ function sanitizeBaseUrl(value) {
 }
 
 function normalizeBaseUrl(provider, value) {
-  const raw = sanitizeBaseUrl(value);
+  const raw = sanitizeBaseUrl(value).replace(/\/chat\/completions\/?$/i, "");
   if (!raw) return provider === "gemini_native" ? DEFAULT_GEMINI_BASE_URL : DEFAULT_OPENAI_BASE_URL;
   if (provider === "gemini_native") return raw;
   try {

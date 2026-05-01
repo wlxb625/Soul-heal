@@ -609,6 +609,38 @@ async function invokeSupabaseCoach({ scenario, message, details }) {
   return payload;
 }
 
+async function invokeSupabaseAiSettingsTest(updates, options = {}) {
+  const candidate = sanitizeAiSettings({
+    ...(state.aiSettings || {}),
+    ...updates,
+    apiKey: String(updates.apiKey || "").trim() || state.aiSettings.apiKey || ""
+  });
+  if (!candidate.apiKey) throw new Error("请先填写 API Key");
+
+  const payload = await apiFetch("/.netlify/functions/coach", {
+    method: "POST",
+    signal: options.signal,
+    body: {
+      provider: candidate.provider,
+      baseUrl: candidate.baseUrl,
+      model: candidate.model,
+      apiKey: candidate.apiKey,
+      scenario: "AI 接口测试",
+      message: "请基于我的性格特点生成一条很短的测试建议。",
+      details: "",
+      personalityContext: buildPersonalityContext(state),
+      historyMessages: []
+    }
+  });
+
+  return {
+    ok: true,
+    provider: payload.provider || candidate.provider,
+    model: payload.model || candidate.model,
+    replyPreview: payload.reply || "AI 接口测试成功"
+  };
+}
+
 async function initialize() {
   const client = getSupabaseClient();
   if (client) {
@@ -1336,18 +1368,7 @@ async function saveAiSettings(updates) {
 
 async function testAiSettings(updates, options = {}) {
   if (getSupabaseClient()) {
-    const candidate = sanitizeAiSettings({
-      ...(state.aiSettings || {}),
-      ...updates,
-      apiKey: String(updates.apiKey || "").trim() || state.aiSettings.apiKey || ""
-    });
-    if (!candidate.apiKey) throw new Error("请先填写 API Key");
-    return {
-      ok: true,
-      provider: candidate.provider,
-      model: candidate.model,
-      replyPreview: "Supabase 模式已保存配置；正式调用会使用你填写的 API Key。"
-    };
+    return invokeSupabaseAiSettingsTest(updates, options);
   }
 
   return apiFetch("/api/ai-settings/test", {

@@ -50,12 +50,24 @@ test("Supabase coach requests call the Netlify AI function with personality cont
   assert.match(common, /mbti: current\.mbti/);
 });
 
+test("Supabase API test uses the same real AI function as coach", () => {
+  const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
+  assert.match(common, /invokeSupabaseAiSettingsTest/);
+  assert.doesNotMatch(common, /Supabase 模式已保存配置；正式调用会使用你填写的 API Key。/);
+});
+
 test("Netlify coach function requests AI using personality context", () => {
   const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
   assert.match(fn, /性格特点/);
   assert.match(fn, /MBTI/);
   assert.match(fn, /chat\/completions/);
   assert.match(fn, /plan_groups/);
+});
+
+test("Netlify coach function normalizes full OpenAI-compatible endpoint URLs", () => {
+  const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
+  assert.match(fn, /sanitizeBaseUrl\(value\)\.replace/);
+  assert.match(fn, /chat\\\/completions/);
 });
 
 test("Supabase schema stores one private app state per authenticated user", () => {
