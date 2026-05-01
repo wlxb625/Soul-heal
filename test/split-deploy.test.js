@@ -3,11 +3,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-const {
-  getAllowedCorsOrigins,
-  getSessionCookieOptions
-} = require("../deployment-config");
-
 const rootDir = path.join(__dirname, "..");
 
 test("Netlify publishes generated static frontend only", () => {
@@ -19,38 +14,30 @@ test("Netlify publishes generated static frontend only", () => {
 
 test("frontend has runtime API base configuration loaded before app runtime", () => {
   const index = fs.readFileSync(path.join(rootDir, "index.html"), "utf8");
-  assert.match(index, /<script src="runtime-config\.js"><\/script>\s*<script src="common\.runtime\.js"><\/script>/);
+  assert.match(index, /<script src="runtime-config\.js"><\/script>\s*<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2"><\/script>\s*<script src="common\.runtime\.js"><\/script>/);
 
   const runtimeConfig = fs.readFileSync(path.join(rootDir, "runtime-config.js"), "utf8");
   assert.match(runtimeConfig, /window\.YUGE_API_BASE_URL/);
 });
 
-test("Netlify build can write Render backend URL into runtime config", () => {
+test("Netlify build can write Supabase runtime config", () => {
   const script = fs.readFileSync(path.join(rootDir, "scripts", "build-netlify.js"), "utf8");
-  assert.match(script, /process\.env\.YUGE_API_BASE_URL/);
+  assert.match(script, /process\.env\.YUGE_SUPABASE_URL/);
+  assert.match(script, /process\.env\.YUGE_SUPABASE_ANON_KEY/);
   assert.match(script, /runtime-config\.js/);
   assert.match(script, /STATIC_FILES/);
 });
 
-test("frontend API fetch uses configured backend base URL with cross-origin credentials", () => {
+test("frontend can initialize Supabase from runtime config", () => {
   const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
-  assert.match(common, /getApiUrl/);
-  assert.match(common, /credentials:\s*"include"/);
-  assert.match(common, /window\.YUGE_API_BASE_URL/);
+  assert.match(common, /getSupabaseClient/);
+  assert.match(common, /window\.YUGE_SUPABASE_URL/);
+  assert.match(common, /window\.YUGE_SUPABASE_ANON_KEY/);
 });
 
-test("Render backend reads CORS origins from environment", () => {
-  assert.deepEqual(
-    getAllowedCorsOrigins("https://front.netlify.app, http://localhost:8888"),
-    ["https://front.netlify.app", "http://localhost:8888"]
-  );
-});
-
-test("production session cookies are valid for Netlify to Render cross-site auth", () => {
-  assert.deepEqual(getSessionCookieOptions("production"), {
-    httpOnly: true,
-    sameSite: "none",
-    secure: true,
-    path: "/"
-  });
+test("Supabase schema stores one private app state per authenticated user", () => {
+  const sql = fs.readFileSync(path.join(rootDir, "supabase", "schema.sql"), "utf8");
+  assert.match(sql, /create table if not exists public\.app_states/);
+  assert.match(sql, /alter table public\.app_states enable row level security/);
+  assert.match(sql, /auth\.uid\(\) = user_id/);
 });

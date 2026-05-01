@@ -7,6 +7,7 @@ const SCENARIOS = ["团队会议", "冲突处理", "决策时刻", "压力管理
 const questionBank = buildQuestions();
 let currentUser = null;
 let state = cloneDefaultState();
+let supabaseClient = null;
 
 function cloneDefaultState() {
   return {
@@ -303,12 +304,14 @@ function sanitizeAiMessages(candidate) {
 
 function sanitizeAiSettings(candidate) {
   const source = candidate || {};
+  const apiKey = String(source.apiKey || "").trim();
   return {
     baseUrl: String(source.baseUrl || "").trim(),
     model: String(source.model || "gpt-4.1-mini").trim() || "gpt-4.1-mini",
     provider: String(source.provider || "openai_compatible").trim() === "gemini_native" ? "gemini_native" : "openai_compatible",
-    hasApiKey: Boolean(source.hasApiKey),
-    apiKeyMasked: String(source.apiKeyMasked || "")
+    apiKey,
+    hasApiKey: Boolean(source.hasApiKey || apiKey),
+    apiKeyMasked: apiKey ? `...${apiKey.slice(-4)}` : String(source.apiKeyMasked || "")
   };
 }function sanitizeBackendCapabilities(candidate) {
   const source = candidate || {};
@@ -374,6 +377,104 @@ function setStateFromServer(serverState) {
   state = sanitizeState(serverState);
   applyTheme();
   return state;
+}
+
+function isSupabaseConfigured() {
+  return Boolean(
+    window.supabase &&
+    String(window.YUGE_SUPABASE_URL || "").trim() &&
+    String(window.YUGE_SUPABASE_ANON_KEY || "").trim()
+  );
+}
+
+function getSupabaseClient() {
+  if (!isSupabaseConfigured()) return null;
+  if (!supabaseClient) {
+    supabaseClient = window.supabase.createClient(
+      String(window.YUGE_SUPABASE_URL || "").trim(),
+      String(window.YUGE_SUPABASE_ANON_KEY || "").trim()
+    );
+  }
+  return supabaseClient;
+}
+
+function toPublicUser(user) {
+  if (!user) return null;
+  const username = String(user.user_metadata && user.user_metadata.username || "").trim()
+    || String(user.email || "").split("@")[0]
+    || "user";
+  return {
+    id: user.id,
+    username,
+    email: user.email || "",
+    createdAt: user.created_at || ""
+  };
+}
+
+function buildAppPayload() {
+  return {
+    user: currentUser,
+    state,
+    backendBuild: state.backendBuild,
+    backendCapabilities: { ...state.backendCapabilities }
+  };
+}
+
+async function loadSupabaseState(user) {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from("app_states")
+    .select("state")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message || "读取 Supabase 用户数据失败");
+
+  currentUser = toPublicUser(user);
+  const nextState = sanitizeState({
+    ...cloneDefaultState(),
+    ...(data && data.state ? data.state : {}),
+    backendBuild: "supabase",
+    backendCapabilities: {
+      structuredPlan: true,
+      planBook: true
+    }
+  });
+  setStateFromServer(nextState);
+
+  if (!data) {
+    await saveSupabaseState();
+  }
+
+  return buildAppPayload();
+}
+
+async function saveSupabaseState() {
+  const client = getSupabaseClient();
+  if (!client || !currentUser) throw new Error("当前未登录");
+  const { error } = await client
+    .from("app_states")
+    .upsert({
+      user_id: currentUser.id,
+      state,
+      updated_at: new Date().toISOString()
+    });
+  if (error) throw new Error(error.message || "保存 Supabase 用户数据失败");
+  return buildAppPayload();
+}
+
+async function mutateSupabaseState(updater) {
+  const next = typeof updater === "function" ? updater(state) : updater;
+  setStateFromServer({
+    ...cloneDefaultState(),
+    ...next,
+    backendBuild: "supabase",
+    backendCapabilities: {
+      structuredPlan: true,
+      planBook: true
+    }
+  });
+  return saveSupabaseState();
 }
 
 function resetAuthState() {
@@ -459,6 +560,22 @@ async function apiFetch(url, options = {}) {
 }
 
 async function initialize() {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client.auth.getSession();
+      if (error) throw new Error(error.message || "读取 Supabase 会话失败");
+      if (data && data.session && data.session.user) {
+        await loadSupabaseState(data.session.user);
+        return { authenticated: true, user: currentUser };
+      }
+    } catch (error) {
+      console.error("Supabase session bootstrap failed", error);
+    }
+    resetAuthState();
+    return { authenticated: false, user: null };
+  }
+
   try {
     const session = await apiFetch("/api/auth/session", { allowUnauthorized: true });
     if (session.authenticated) {
@@ -475,6 +592,17 @@ async function initialize() {
 }
 
 async function fetchAppState() {
+  const client = getSupabaseClient();
+  if (client) {
+    const { data, error } = await client.auth.getUser();
+    if (error || !data || !data.user) {
+      resetAuthState();
+      dispatchAuthRequired();
+      throw new Error("当前未登录");
+    }
+    return loadSupabaseState(data.user);
+  }
+
   const payload = await apiFetch("/api/app-state");
   currentUser = payload.user;
   setStateFromServer(payload.state);
@@ -534,6 +662,21 @@ async function maybeImportLegacyLocalData() {
 }
 
 async function register(username, email, password) {
+  const client = getSupabaseClient();
+  if (client) {
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { username }
+      }
+    });
+    if (error) throw new Error(error.message || "注册失败");
+    if (!data.user) throw new Error("注册成功，请先到邮箱完成验证后再登录");
+    await loadSupabaseState(data.user);
+    return buildAppPayload();
+  }
+
   const data = await apiFetch("/api/auth/register", {
     method: "POST",
     body: { username, email, password },
@@ -559,6 +702,16 @@ async function register(username, email, password) {
 }
 
 async function login(account, password) {
+  const client = getSupabaseClient();
+  if (client) {
+    const email = String(account || "").trim();
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message || "登录失败");
+    if (!data.user) throw new Error("登录失败");
+    await loadSupabaseState(data.user);
+    return buildAppPayload();
+  }
+
   const data = await apiFetch("/api/auth/login", {
     method: "POST",
     body: { account, password },
@@ -584,6 +737,16 @@ async function login(account, password) {
 }
 
 async function logout() {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      await client.auth.signOut();
+    } finally {
+      resetAuthState();
+    }
+    return { ok: true };
+  }
+
   try {
     await apiFetch("/api/auth/logout", {
       method: "POST",
@@ -607,6 +770,15 @@ function isAuthenticated() {
 }
 
 async function updatePreferences(updates) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      theme: updates.theme !== undefined ? updates.theme : current.theme,
+      selectedScenario: updates.selectedScenario !== undefined ? updates.selectedScenario : current.selectedScenario,
+      onboardingCompleted: updates.onboardingCompleted !== undefined ? updates.onboardingCompleted : current.onboardingCompleted
+    }));
+  }
+
   const payload = await apiFetch("/api/preferences", {
     method: "PUT",
     body: updates
@@ -630,6 +802,10 @@ async function setSelectedScenario(selectedScenario) {
 }
 
 async function persistMbtiProgress() {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState(state);
+  }
+
   const payload = await apiFetch("/api/mbti/progress", {
     method: "PUT",
     body: {
@@ -660,9 +836,61 @@ function getNextUnansweredIndex() {
   return index === -1 ? 0 : index;
 }
 
+function buildRadarValues(type, scores) {
+  const t = String(type || "INFP").split("");
+  const clamp = (value) => Math.max(35, Math.min(92, Math.round(value)));
+  return [
+    clamp(t[0] === "I" ? 78 : 46),
+    clamp(t[1] === "N" ? 80 : 48),
+    clamp(t[2] === "F" ? 82 : 50),
+    clamp(t[3] === "P" ? 79 : 47),
+    clamp(68 - Math.abs(scores.FT) * 0.8),
+    clamp(65 + Math.abs(scores.PJ) * 0.8),
+    clamp(60 + Math.abs(scores.IE) * 0.5),
+    clamp(58 + Math.abs(scores.NS) * 0.5)
+  ];
+}
+
+function computeMbtiFromAnswers(answers) {
+  const safeAnswers = sanitizeAnswers(answers);
+  if (safeAnswers.some((value) => value === null)) return null;
+  const scores = { IE: 0, NS: 0, FT: 0, PJ: 0 };
+  questionBank.forEach((question, index) => {
+    scores[question.dimension] += safeAnswers[index];
+  });
+  const mbti = [
+    scores.IE >= 0 ? "E" : "I",
+    scores.NS >= 0 ? "S" : "N",
+    scores.FT >= 0 ? "T" : "F",
+    scores.PJ >= 0 ? "J" : "P"
+  ].join("");
+  const avgAbs = safeAnswers.reduce((sum, value) => sum + Math.abs(value), 0) / TOTAL_QUESTIONS;
+  const balance = (Math.abs(scores.IE) + Math.abs(scores.NS) + Math.abs(scores.FT) + Math.abs(scores.PJ)) / 4;
+  return {
+    mbti,
+    reliability: Math.round(72 + Math.min(25, avgAbs * 12)),
+    match: Math.round(65 + Math.min(30, balance * 2)),
+    radar: buildRadarValues(mbti, scores)
+  };
+}
+
 async function completeMBTI() {
   if (state.answers.some((item) => item === null)) {
     return { ok: false, message: "还有未完成题目，请先答完56题" };
+  }
+
+  if (getSupabaseClient()) {
+    const result = computeMbtiFromAnswers(state.answers);
+    if (!result) return { ok: false, message: "还有未完成题目，请先答完56题" };
+    await mutateSupabaseState((current) => ({
+      ...current,
+      mbti: result.mbti,
+      mbtiSource: "test",
+      reliability: result.reliability,
+      match: result.match,
+      radar: result.radar
+    }));
+    return { ok: true, type: result.mbti, result };
   }
 
   const payload = await apiFetch("/api/mbti/complete", {
@@ -682,6 +910,19 @@ async function completeMBTI() {
 }
 
 async function manualSelectMbti(mbti) {
+  if (getSupabaseClient()) {
+    const normalized = sanitizeMbtiType(mbti);
+    if (!normalized) throw new Error("请选择有效的 MBTI 类型");
+    return mutateSupabaseState((current) => ({
+      ...current,
+      mbti: normalized,
+      mbtiSource: "manual",
+      reliability: 0,
+      match: 0,
+      radar: buildTypeRadar(normalized)
+    }));
+  }
+
   const payload = await apiFetch("/api/mbti/manual-select", {
     method: "PUT",
     body: { mbti }
@@ -693,6 +934,19 @@ async function manualSelectMbti(mbti) {
 }
 
 async function resetMBTI() {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      currentQuestion: 0,
+      answers: new Array(TOTAL_QUESTIONS).fill(null),
+      mbti: null,
+      mbtiSource: "none",
+      reliability: 0,
+      match: 0,
+      radar: []
+    }));
+  }
+
   const payload = await apiFetch("/api/mbti/reset", {
     method: "POST"
   });
@@ -703,6 +957,16 @@ async function resetMBTI() {
 }
 
 async function addTodo(text) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    const trimmed = String(text || "").trim();
+    if (!trimmed) throw new Error("请输入任务内容");
+    return mutateSupabaseState((current) => ({
+      ...current,
+      todos: [{ id: cryptoRandomId(), text: trimmed, done: false, createdAt: now, updatedAt: now }, ...current.todos]
+    }));
+  }
+
   const payload = await apiFetch("/api/todos", {
     method: "POST",
     body: { text }
@@ -713,6 +977,14 @@ async function addTodo(text) {
 }
 
 async function toggleTodoDone(id, done) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    return mutateSupabaseState((current) => ({
+      ...current,
+      todos: current.todos.map((todo) => todo.id === id ? { ...todo, done: Boolean(done), updatedAt: now } : todo)
+    }));
+  }
+
   const payload = await apiFetch(`/api/todos/${id}`, {
     method: "PATCH",
     body: { done }
@@ -723,6 +995,77 @@ async function toggleTodoDone(id, done) {
 }
 
 async function requestCoach(input) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    const scenario = sanitizeScenario(input && input.scenario);
+    const goal = String(input && input.goal ? input.goal : "").trim() || "提升表达与行动一致性";
+    const details = String(input && input.details ? input.details : "").trim();
+    const historyId = cryptoRandomId();
+    const conversationId = state.activeAiConversationId || cryptoRandomId();
+    const structuredPlan = {
+      plan_groups: [
+        {
+          group_name: "稳定起步",
+          group_description: "先用低成本动作建立可持续节奏。",
+          plans: [
+            {
+              plan_name: `${scenario}微行动`,
+              plan_description: goal,
+              estimated_days: 7,
+              completion_threshold: 0.7,
+              tasks: [
+                { task_description: "写下这次想改善的一句话目标" },
+                { task_description: "选择一个 10 分钟内能完成的小动作" },
+                { task_description: "完成后记录一次感受和下一步调整" }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+    const response = {
+      summary: `围绕“${scenario}”先从一个可执行的小步骤开始。`,
+      steps: structuredPlan.plan_groups[0].plans[0].tasks.map((task) => task.task_description),
+      reflectionQuestion: "这三个动作里，哪一个最适合今天先做？",
+      taskSuggestion: `${scenario}：完成一次微行动`,
+      structuredPlan
+    };
+    let payload;
+    await mutateSupabaseState((current) => {
+      const conversations = current.aiConversations.slice();
+      const existingIndex = conversations.findIndex((item) => item.id === conversationId);
+      const conversation = {
+        id: conversationId,
+        title: goal.length > 26 ? `${goal.slice(0, 26)}...` : goal,
+        scenario,
+        createdAt: existingIndex >= 0 ? conversations[existingIndex].createdAt : now,
+        updatedAt: now,
+        lastMessageAt: now,
+        preview: response.summary,
+        turnCount: existingIndex >= 0 ? conversations[existingIndex].turnCount + 1 : 1
+      };
+      if (existingIndex >= 0) conversations[existingIndex] = conversation;
+      else conversations.unshift(conversation);
+      const userMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "user", text: goal, details, createdAt: now };
+      const assistantMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "assistant", text: response.summary, structuredPlan, createdAt: now };
+      return {
+        ...current,
+        activeAiConversationId: conversationId,
+        aiConversations: conversations,
+        activeConversationMessages: [...current.activeConversationMessages, userMessage, assistantMessage],
+        aiHistory: [{ id: historyId, scenario, goal, details, response, createdAt: now }, ...current.aiHistory]
+      };
+    });
+    payload = {
+      ...buildAppPayload(),
+      mode: "structured-plan",
+      response,
+      structuredPlan,
+      historyId
+    };
+    return payload;
+  }
+
   const payload = await apiFetch("/api/coach", {
     method: "POST",
     body: input
@@ -738,6 +1081,13 @@ async function requestCoach(input) {
 }
 
 async function setActiveAiConversation(conversationId) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      activeAiConversationId: conversationId || null
+    }));
+  }
+
   const payload = await apiFetch("/api/ai-conversations/active", {
     method: "POST",
     body: { conversationId: conversationId || null }
@@ -749,10 +1099,22 @@ async function setActiveAiConversation(conversationId) {
 }
 
 async function loadAiConversationMessages(conversationId) {
+  if (getSupabaseClient()) {
+    if (!conversationId || conversationId !== state.activeAiConversationId) return [];
+    return state.activeConversationMessages;
+  }
+
   return apiFetch(`/api/ai-conversations/${encodeURIComponent(conversationId)}/messages`);
 }
 
 async function updateAiConversation(conversationId, updates) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      aiConversations: current.aiConversations.map((item) => item.id === conversationId ? { ...item, ...updates, updatedAt: new Date().toISOString() } : item)
+    }));
+  }
+
   const payload = await apiFetch(`/api/ai-conversations/${encodeURIComponent(conversationId)}`, {
     method: "PATCH",
     body: updates
@@ -764,6 +1126,15 @@ async function updateAiConversation(conversationId, updates) {
 }
 
 async function deleteAiConversation(conversationId) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      activeAiConversationId: current.activeAiConversationId === conversationId ? null : current.activeAiConversationId,
+      aiConversations: current.aiConversations.filter((item) => item.id !== conversationId),
+      activeConversationMessages: current.activeAiConversationId === conversationId ? [] : current.activeConversationMessages
+    }));
+  }
+
   const payload = await apiFetch(`/api/ai-conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE"
   });
@@ -774,6 +1145,46 @@ async function deleteAiConversation(conversationId) {
 }
 
 async function addPlanBookEntry(sourceHistoryId, groupIndex, planIndex) {
+  if (getSupabaseClient()) {
+    const history = state.aiHistory.find((item) => item.id === sourceHistoryId);
+    const group = history && history.response && history.response.structuredPlan
+      ? history.response.structuredPlan.plan_groups[groupIndex]
+      : null;
+    const plan = group && group.plans ? group.plans[planIndex] : null;
+    if (!plan) throw new Error("找不到可加入计划簿的计划");
+    const now = new Date().toISOString();
+    const entryId = cryptoRandomId();
+    return mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: [
+        {
+          id: entryId,
+          sourceHistoryId,
+          sourceGroupIndex: groupIndex,
+          sourcePlanIndex: planIndex,
+          groupName: group.group_name,
+          groupDescription: group.group_description,
+          planName: plan.plan_name,
+          planDescription: plan.plan_description,
+          estimatedDays: plan.estimated_days,
+          completionThreshold: plan.completion_threshold,
+          status: "active",
+          achievedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          tasks: plan.tasks.map((task, index) => ({
+            id: `${entryId}_${index}`,
+            taskDescription: task.task_description,
+            done: false,
+            sortOrder: index,
+            completedAt: null
+          }))
+        },
+        ...current.planBookEntries
+      ]
+    }));
+  }
+
   const payload = await apiFetch("/api/plan-book", {
     method: "POST",
     body: { sourceHistoryId, groupIndex, planIndex }
@@ -785,6 +1196,13 @@ async function addPlanBookEntry(sourceHistoryId, groupIndex, planIndex) {
 }
 
 async function removePlanBookEntry(entryId) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: current.planBookEntries.filter((entry) => entry.id !== entryId)
+    }));
+  }
+
   const payload = await apiFetch(`/api/plan-book/${encodeURIComponent(entryId)}`, {
     method: "DELETE"
   });
@@ -795,6 +1213,22 @@ async function removePlanBookEntry(entryId) {
 }
 
 async function restartPlanBookEntry(entryId) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    return mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: current.planBookEntries.map((entry) => entry.id === entryId
+        ? {
+            ...entry,
+            status: "active",
+            achievedAt: null,
+            updatedAt: now,
+            tasks: entry.tasks.map((task) => ({ ...task, done: false, completedAt: null }))
+          }
+        : entry)
+    }));
+  }
+
   const payload = await apiFetch(`/api/plan-book/${encodeURIComponent(entryId)}/restart`, {
     method: "POST"
   });
@@ -805,6 +1239,29 @@ async function restartPlanBookEntry(entryId) {
 }
 
 async function togglePlanBookTask(entryId, taskId, done) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    return mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: current.planBookEntries.map((entry) => {
+        if (entry.id !== entryId) return entry;
+        const tasks = entry.tasks.map((task) => task.id === taskId
+          ? { ...task, done: Boolean(done), completedAt: done ? now : null }
+          : task);
+        const completed = tasks.filter((task) => task.done).length;
+        const ratio = tasks.length ? completed / tasks.length : 0;
+        const achieved = ratio >= Number(entry.completionThreshold || 1);
+        return {
+          ...entry,
+          tasks,
+          status: achieved ? "achieved" : "active",
+          achievedAt: achieved ? entry.achievedAt || now : null,
+          updatedAt: now
+        };
+      })
+    }));
+  }
+
   const payload = await apiFetch(`/api/plan-book/${encodeURIComponent(entryId)}/tasks/${encodeURIComponent(taskId)}`, {
     method: "PATCH",
     body: { done }
@@ -815,6 +1272,21 @@ async function togglePlanBookTask(entryId, taskId, done) {
   return payload;
 }
 async function saveAiSettings(updates) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => {
+      const existing = current.aiSettings || {};
+      const nextApiKey = String(updates.apiKey || "").trim() || existing.apiKey || "";
+      return {
+        ...current,
+        aiSettings: sanitizeAiSettings({
+          ...existing,
+          ...updates,
+          apiKey: nextApiKey
+        })
+      };
+    });
+  }
+
   const payload = await apiFetch("/api/ai-settings", {
     method: "PUT",
     body: updates
@@ -826,6 +1298,21 @@ async function saveAiSettings(updates) {
 }
 
 async function testAiSettings(updates, options = {}) {
+  if (getSupabaseClient()) {
+    const candidate = sanitizeAiSettings({
+      ...(state.aiSettings || {}),
+      ...updates,
+      apiKey: String(updates.apiKey || "").trim() || state.aiSettings.apiKey || ""
+    });
+    if (!candidate.apiKey) throw new Error("请先填写 API Key");
+    return {
+      ok: true,
+      provider: candidate.provider,
+      model: candidate.model,
+      replyPreview: "Supabase 模式已保存配置；正式调用会使用你填写的 API Key。"
+    };
+  }
+
   return apiFetch("/api/ai-settings/test", {
     method: "POST",
     body: updates,
@@ -834,6 +1321,14 @@ async function testAiSettings(updates, options = {}) {
 }
 
 async function deleteAiHistory(id) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      aiHistory: current.aiHistory.filter((item) => item.id !== id),
+      activeConversationMessages: current.activeConversationMessages.filter((item) => item.historyId !== id)
+    }));
+  }
+
   const payload = await apiFetch(`/api/ai-history/${encodeURIComponent(id)}`, {
     method: "DELETE"
   });
@@ -844,6 +1339,14 @@ async function deleteAiHistory(id) {
 }
 
 async function clearAiHistory() {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      aiHistory: [],
+      activeConversationMessages: []
+    }));
+  }
+
   const payload = await apiFetch("/api/ai-history?scope=all", {
     method: "DELETE"
   });

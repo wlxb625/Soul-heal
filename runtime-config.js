@@ -1,1 +1,3 @@
+window.YUGE_SUPABASE_URL = window.YUGE_SUPABASE_URL || "";
+window.YUGE_SUPABASE_ANON_KEY = window.YUGE_SUPABASE_ANON_KEY || "";
 window.YUGE_API_BASE_URL = window.YUGE_API_BASE_URL || "";
