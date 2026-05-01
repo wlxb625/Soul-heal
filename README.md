@@ -9,7 +9,7 @@
 - **Netlify**：托管前端静态页面，并运行 AI 代理函数
 - **Supabase Auth**：邮箱注册、登录和会话管理
 - **Supabase Postgres**：保存每个用户的测试结果、AI 会话、计划簿和设置
-- **用户自带 AI Key**：在设置页填写公网 OpenAI 兼容接口，例如 DeepSeek
+- **用户自带 AI Key**：在设置页填写公网 OpenAI 兼容接口和模型名称
 
 项目不依赖 Render，也不需要银行卡。
 
@@ -103,15 +103,13 @@ npx netlify deploy --prod --build
 
 ## AI 设置
 
-登录后进入“设置”，填写公网 AI 接口信息。
-
-DeepSeek 推荐配置：
+登录后进入“设置”，填写公网 AI 接口信息：
 
 ```text
 服务商：OpenAI 兼容接口
-Base URL：https://api.deepseek.com/v1
-模型名称：deepseek-chat
-API Key：你的 DeepSeek API Key
+Base URL：https://你的公网模型接口/v1
+模型名称：你要调用的模型名称
+API Key：你的模型服务 API Key
 ```
 
 不要把本地地址填到线上站点里，例如：
@@ -122,7 +120,9 @@ http://127.0.0.1:8317/v1
 
 Netlify 线上环境无法访问你电脑上的本地服务。
 
-如果 AI 助手提示模型响应超时，通常不是 URL 填错，而是模型回复超过了 Netlify Function 的执行时间限制。优先使用 `deepseek-chat`，避免使用较慢的推理模型。
+如果你本地用代理工具或本机模型服务测试成功，也不能直接把 `127.0.0.1`、`localhost` 或局域网地址填到线上站点。线上站点只能访问公网可达的 HTTPS/API 地址。
+
+如果 AI 助手提示模型响应超时，通常不是 URL 填错，而是模型回复超过了 Netlify Function 的执行时间限制。可以换更快的模型，或改用执行时间更长的后端来代理 AI 请求。
 
 ## 验证
 
