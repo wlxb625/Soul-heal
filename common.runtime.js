@@ -559,6 +559,56 @@ async function apiFetch(url, options = {}) {
   return data;
 }
 
+function buildPersonalityContext(current) {
+  return {
+    mbti: current.mbti || "",
+    mbtiSource: current.mbtiSource || "none",
+    reliability: Number(current.reliability) || 0,
+    match: Number(current.match) || 0,
+    radar: Array.isArray(current.radar) ? current.radar.slice(0, 8) : []
+  };
+}
+
+function buildCoachHistoryMessages(current) {
+  return (Array.isArray(current.activeConversationMessages) ? current.activeConversationMessages : [])
+    .slice(-8)
+    .map((item) => ({
+      role: item && item.role === "assistant" ? "assistant" : "user",
+      text: String(item && item.text ? item.text : "").trim()
+    }))
+    .filter((item) => item.text);
+}
+
+async function invokeSupabaseCoach({ scenario, message, details }) {
+  const current = state;
+  const settings = current.aiSettings || {};
+  const apiKey = String(settings.apiKey || "").trim();
+  if (!apiKey) {
+    throw new Error("请先到“设置”里填写你自己的 API Key，保存后再使用 AI 助手。");
+  }
+
+  const payload = await apiFetch("/.netlify/functions/coach", {
+    method: "POST",
+    body: {
+      provider: settings.provider || "openai_compatible",
+      baseUrl: settings.baseUrl || "",
+      model: settings.model || "gpt-4.1-mini",
+      apiKey,
+      scenario,
+      message,
+      details,
+      personalityContext: buildPersonalityContext(current),
+      historyMessages: buildCoachHistoryMessages(current)
+    }
+  });
+
+  if (!isValidStructuredPlanPayload(payload)) {
+    throw new Error("AI 没有返回可执行计划方案，请检查模型是否支持 JSON 输出后重试。");
+  }
+
+  return payload;
+}
+
 async function initialize() {
   const client = getSupabaseClient();
   if (client) {
@@ -1001,31 +1051,17 @@ async function requestCoach(input) {
     const userText = String(input && input.message ? input.message : input && input.goal ? input.goal : "").trim();
     const goal = String(input && input.goal ? input.goal : userText).trim() || "提升表达与行动一致性";
     const details = String(input && input.details ? input.details : "").trim();
+    if (!userText) throw new Error("请先输入你想对助手说的话");
     const historyId = cryptoRandomId();
     const conversationId = state.activeAiConversationId || cryptoRandomId();
-    const structuredPlan = {
-      plan_groups: [
-        {
-          group_name: "稳定起步",
-          group_description: "先用低成本动作建立可持续节奏。",
-          plans: [
-            {
-              plan_name: `${scenario}微行动`,
-              plan_description: goal,
-              estimated_days: 7,
-              completion_threshold: 0.7,
-              tasks: [
-                { task_description: "写下这次想改善的一句话目标" },
-                { task_description: "选择一个 10 分钟内能完成的小动作" },
-                { task_description: "完成后记录一次感受和下一步调整" }
-              ]
-            }
-          ]
-        }
-      ]
-    };
+    const coachPayload = await invokeSupabaseCoach({ scenario, message: userText, details });
+    const structuredPlan = coachPayload.structuredPlan;
     const response = {
-      summary: `围绕“${scenario}”先从一个可执行的小步骤开始。`,
+      source: coachPayload.source || "custom-api",
+      mode: "structured-plan",
+      provider: coachPayload.provider || "",
+      model: coachPayload.model || "",
+      summary: [coachPayload.reply, coachPayload.analysis].map((item) => String(item || "").trim()).filter(Boolean).join("\n\n"),
       steps: structuredPlan.plan_groups[0].plans[0].tasks.map((task) => task.task_description),
       reflectionQuestion: "这三个动作里，哪一个最适合今天先做？",
       taskSuggestion: `${scenario}：完成一次微行动`,

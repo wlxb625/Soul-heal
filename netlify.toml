@@ -1,6 +1,7 @@
 [build]
   command = "node scripts/build-netlify.js"
   publish = "dist"
+  functions = "netlify/functions"
 
 [[redirects]]
   from = "/mbti"

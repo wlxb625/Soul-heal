@@ -10,6 +10,7 @@ test("Netlify publishes generated static frontend only", () => {
   assert.match(toml, /\[build\]/);
   assert.match(toml, /command\s*=\s*"node scripts\/build-netlify\.js"/);
   assert.match(toml, /publish\s*=\s*"dist"/);
+  assert.match(toml, /functions\s*=\s*"netlify\/functions"/);
 });
 
 test("frontend has runtime API base configuration loaded before app runtime", () => {
@@ -39,6 +40,22 @@ test("Supabase coach requests preserve the user's chat message", () => {
   const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
   assert.match(common, /const userText = String\(input && input\.message \? input\.message : input && input\.goal \? input\.goal : ""\)\.trim\(\);/);
   assert.match(common, /role: "user", text: userText/);
+});
+
+test("Supabase coach requests call the Netlify AI function with personality context", () => {
+  const common = fs.readFileSync(path.join(rootDir, "common.runtime.js"), "utf8");
+  assert.match(common, /invokeSupabaseCoach/);
+  assert.match(common, /\/\.netlify\/functions\/coach/);
+  assert.match(common, /personalityContext/);
+  assert.match(common, /mbti: current\.mbti/);
+});
+
+test("Netlify coach function requests AI using personality context", () => {
+  const fn = fs.readFileSync(path.join(rootDir, "netlify", "functions", "coach.js"), "utf8");
+  assert.match(fn, /性格特点/);
+  assert.match(fn, /MBTI/);
+  assert.match(fn, /chat\/completions/);
+  assert.match(fn, /plan_groups/);
 });
 
 test("Supabase schema stores one private app state per authenticated user", () => {
