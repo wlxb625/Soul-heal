@@ -1,6 +1,6 @@
 [build]
-  command = "node scripts/write-runtime-config.js"
-  publish = "."
+  command = "node scripts/build-netlify.js"
+  publish = "dist"
 
 [[redirects]]
   from = "/mbti"

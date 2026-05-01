@@ -10,11 +10,11 @@ const {
 
 const rootDir = path.join(__dirname, "..");
 
-test("Netlify publishes the static frontend only", () => {
+test("Netlify publishes generated static frontend only", () => {
   const toml = fs.readFileSync(path.join(rootDir, "netlify.toml"), "utf8");
   assert.match(toml, /\[build\]/);
-  assert.match(toml, /command\s*=\s*"node scripts\/write-runtime-config\.js"/);
-  assert.match(toml, /publish\s*=\s*"\."/);
+  assert.match(toml, /command\s*=\s*"node scripts\/build-netlify\.js"/);
+  assert.match(toml, /publish\s*=\s*"dist"/);
 });
 
 test("frontend has runtime API base configuration loaded before app runtime", () => {
@@ -26,9 +26,10 @@ test("frontend has runtime API base configuration loaded before app runtime", ()
 });
 
 test("Netlify build can write Render backend URL into runtime config", () => {
-  const script = fs.readFileSync(path.join(rootDir, "scripts", "write-runtime-config.js"), "utf8");
+  const script = fs.readFileSync(path.join(rootDir, "scripts", "build-netlify.js"), "utf8");
   assert.match(script, /process\.env\.YUGE_API_BASE_URL/);
   assert.match(script, /runtime-config\.js/);
+  assert.match(script, /STATIC_FILES/);
 });
 
 test("frontend API fetch uses configured backend base URL with cross-origin credentials", () => {

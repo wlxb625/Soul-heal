@@ -8,3 +8,5 @@ data/*.db-*
 tmp-server-out.log
 tmp-server-err.log
 npm-debug.log*
+
+dist/

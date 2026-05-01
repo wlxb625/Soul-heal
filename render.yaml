@@ -17,7 +17,7 @@ services:
       - key: APP_BUILD
         value: render-blueprint
       - key: CORS_ORIGINS
-        value: https://your-site.netlify.app
+        value: https://yuge-personality-suite.netlify.app
     disk:
       name: data
       mountPath: /opt/render/project/src/data
