@@ -11,10 +11,15 @@
   "engines": {
     "node": ">=24 <25"
   },
-  "keywords": ["mbti", "personality", "ai-coach"],
+  "keywords": [
+    "mbti",
+    "personality",
+    "ai-coach"
+  ],
   "license": "MIT",
   "dependencies": {
     "express": "^4.21.2",
-    "openai": "^4.104.0"
+    "openai": "^4.104.0",
+    "sharp": "^0.35.2"
   }
 }

@@ -6,7 +6,12 @@ const { DatabaseSync } = require("node:sqlite");
 const {
   validateRegistrationCredentials,
   validateLoginCredentials,
-  validateModelName
+  validatePhoneRegistration,
+  validateModelName,
+  getPasswordStrength,
+  isValidEmail,
+  isValidPhone,
+  cleanPhone
 } = require("./auth-validation");
 const {
   getAllowedCorsOrigins,
@@ -20,6 +25,12 @@ const DATA_DIR = path.join(__dirname, "data");
 const DB_PATH = path.join(DATA_DIR, "personality-improvement.db");
 const COOKIE_NAME = "pi_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const REMEMBER_ME_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_RATE_LIMIT_MAX = 5;
+const LOGIN_LOCK_THRESHOLD = 10;
 const TOTAL_QUESTIONS = 56;
 const MBTI_TYPES = ["INTJ", "INTP", "ENTJ", "ENTP", "INFJ", "INFP", "ENFJ", "ENFP", "ISTJ", "ISFJ", "ESTJ", "ESFJ", "ISTP", "ISFP", "ESTP", "ESFP"];
 const SCENARIOS = ["团队会议", "冲突处理", "决策时刻", "压力管理", "自我表达"];
@@ -81,6 +92,45 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 initializeDatabase();
+
+// In-memory rate limiting: IP -> { count, windowStart }
+const loginRateLimitMap = new Map();
+
+function getClientIP(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) {
+    return String(forwarded).split(",")[0].trim();
+  }
+  return req.socket.remoteAddress || "127.0.0.1";
+}
+
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginRateLimitMap.get(ip);
+
+  if (!entry || now - entry.windowStart > LOGIN_RATE_LIMIT_WINDOW_MS) {
+    loginRateLimitMap.set(ip, { count: 1, windowStart: now });
+    return { limited: false, remaining: LOGIN_RATE_LIMIT_MAX - 1 };
+  }
+
+  entry.count += 1;
+  if (entry.count > LOGIN_RATE_LIMIT_MAX) {
+    const retryAfter = Math.ceil((LOGIN_RATE_LIMIT_WINDOW_MS - (now - entry.windowStart)) / 1000);
+    return { limited: true, retryAfter, remaining: 0 };
+  }
+
+  return { limited: false, remaining: LOGIN_RATE_LIMIT_MAX - entry.count };
+}
+
+// Clean up rate limit map every 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - LOGIN_RATE_LIMIT_WINDOW_MS;
+  for (const [ip, entry] of loginRateLimitMap) {
+    if (entry.windowStart < cutoff) {
+      loginRateLimitMap.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000).unref();
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -244,10 +294,38 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_plan_book_entries_user_id ON plan_book_entries(user_id);
     CREATE INDEX IF NOT EXISTS idx_plan_book_entries_source_plan ON plan_book_entries(user_id, source_history_id, source_group_index, source_plan_index);
     CREATE INDEX IF NOT EXISTS idx_plan_book_tasks_entry_id ON plan_book_tasks(entry_id);
+
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_email_verifications_token ON email_verifications(token);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
   `);
 
   ensureTableColumn("ai_settings", "provider", `TEXT NOT NULL DEFAULT '${DEFAULT_AI_PROVIDER}'`);
   ensureTableColumn("users", "email", "TEXT");
+  ensureTableColumn("users", "phone", "TEXT");
+  ensureTableColumn("users", "email_verified", "INTEGER NOT NULL DEFAULT 0");
+  ensureTableColumn("users", "failed_attempts", "INTEGER NOT NULL DEFAULT 0");
+  ensureTableColumn("users", "locked_until", "TEXT");
   ensureTableColumn("user_state", "mbti_source", "TEXT NOT NULL DEFAULT 'none'");
   ensureTableColumn("user_state", "active_ai_conversation_id", "TEXT");
   ensureTableColumn("ai_history", "conversation_id", "TEXT");
@@ -312,10 +390,11 @@ function sessionCookieBaseOptions() {
   return getSessionCookieOptions(process.env.NODE_ENV);
 }
 
-function createSession(res, userId) {
+function createSession(res, userId, rememberMe = false) {
   const sessionId = crypto.randomBytes(32).toString("hex");
   const createdAt = nowIso();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  const ttlMs = rememberMe ? REMEMBER_ME_TTL_MS : SESSION_TTL_MS;
+  const expiresAt = new Date(Date.now() + ttlMs).toISOString();
 
   db.prepare(
     `INSERT INTO sessions (id, user_id, expires_at, created_at)
@@ -324,7 +403,8 @@ function createSession(res, userId) {
 
   res.cookie(COOKIE_NAME, sessionId, {
     ...sessionCookieBaseOptions(),
-    expires: new Date(Date.now() + SESSION_TTL_MS)
+    expires: new Date(Date.now() + ttlMs),
+    maxAge: ttlMs
   });
 }
 
@@ -347,7 +427,8 @@ function loadSession(req, res, next) {
   }
 
   const row = db.prepare(
-    `SELECT sessions.id AS session_id, users.id AS user_id, users.username, users.email
+    `SELECT sessions.id AS session_id, users.id AS user_id, users.username, users.email,
+            users.email_verified, users.phone
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.id = ? AND sessions.expires_at > ?`
@@ -363,7 +444,9 @@ function loadSession(req, res, next) {
   req.user = {
     id: row.user_id,
     username: row.username,
-    email: row.email || ""
+    email: row.email || "",
+    emailVerified: row.email_verified === 1,
+    phone: row.phone || ""
   };
 
   next();
@@ -665,12 +748,14 @@ function formatActivityRow(row) {
 }
 
 function getUserSummary(userId) {
-  const user = db.prepare("SELECT id, username, email, created_at FROM users WHERE id = ?").get(userId);
+  const user = db.prepare("SELECT id, username, email, phone, email_verified, created_at FROM users WHERE id = ?").get(userId);
   if (!user) return null;
   return {
     id: user.id,
     username: user.username,
     email: user.email || "",
+    phone: user.phone || "",
+    emailVerified: user.email_verified === 1,
     createdAt: user.created_at
   };
 }
@@ -1110,6 +1195,45 @@ function verifyPassword(password, saltHex, storedHashHex) {
   const expected = Buffer.from(storedHashHex, "hex");
   if (actual.length !== expected.length) return false;
   return crypto.timingSafeEqual(actual, expected);
+}
+
+function generateVerificationToken(userId, email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS).toISOString();
+
+  db.prepare(
+    `INSERT INTO email_verifications (id, user_id, token, email, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(generateId(), userId, token, email, expiresAt, nowIso());
+
+  return token;
+}
+
+function generateResetToken(userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+
+  db.prepare(
+    `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(generateId(), userId, token, expiresAt, nowIso());
+
+  return token;
+}
+
+function getVerificationLink(token) {
+  const baseUrl = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+  return `${baseUrl}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+}
+
+function getResetLink(token) {
+  const baseUrl = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+  return `${baseUrl}/api/auth/reset-password?token=${encodeURIComponent(token)}`;
+}
+
+function logDevEmail(type, email, linkOrToken) {
+  console.log(`\n[DEV EMAIL] ${type} for ${email}`);
+  console.log(`[DEV EMAIL] Link: ${linkOrToken}\n`);
 }
 
 function buildFallbackPlan({ scenario, goal }) {
@@ -1792,15 +1916,16 @@ app.post("/api/auth/register", (req, res) => {
   const validation = validateRegistrationCredentials({
     username: req.body.username,
     email: req.body.email,
-    password: req.body.password
+    password: req.body.password,
+    phone: req.body.phone
   });
   if (!validation.ok) {
     res.status(400).json({ message: validation.message });
     return;
   }
 
-  const existing = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?)").get(validation.username);
-  if (existing) {
+  const existingUsername = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?)").get(validation.username);
+  if (existingUsername) {
     res.status(400).json({ message: "该用户名已被注册" });
     return;
   }
@@ -1811,25 +1936,56 @@ app.post("/api/auth/register", (req, res) => {
     return;
   }
 
+  if (validation.phone) {
+    const existingPhone = db.prepare("SELECT id FROM users WHERE phone = ?").get(validation.phone);
+    if (existingPhone) {
+      res.status(400).json({ message: "该手机号已被注册" });
+      return;
+    }
+  }
+
   const userId = generateId();
   const timestamp = nowIso();
   const passwordRecord = createPasswordRecord(validation.password);
 
   db.prepare(
-    `INSERT INTO users (id, username, email, password_hash, password_salt, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(userId, validation.username, validation.email, passwordRecord.hash, passwordRecord.salt, timestamp, timestamp);
+    `INSERT INTO users (id, username, email, phone, password_hash, password_salt,
+      email_verified, failed_attempts, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+  ).run(userId, validation.username, validation.email, validation.phone || null,
+    passwordRecord.hash, passwordRecord.salt, timestamp, timestamp);
 
   ensureUserState(userId);
+
+  // Generate email verification token
+  const verifyToken = generateVerificationToken(userId, validation.email);
+  const verifyLink = getVerificationLink(verifyToken);
+  logDevEmail("邮箱验证", validation.email, verifyLink);
+
+  // Create session (user can use the app, but email is unverified)
   createSession(res, userId);
 
   res.status(201).json({
     ok: true,
+    emailVerificationPending: true,
+    emailVerificationLink: verifyLink,
     ...buildAppPayload(userId)
   });
 });
 
 app.post("/api/auth/login", (req, res) => {
+  const clientIP = getClientIP(req);
+
+  // Check rate limit
+  const rateLimitResult = checkLoginRateLimit(clientIP);
+  if (rateLimitResult.limited) {
+    res.status(429).json({
+      message: `登录尝试过于频繁，请 ${rateLimitResult.retryAfter} 秒后再试`,
+      retryAfter: rateLimitResult.retryAfter
+    });
+    return;
+  }
+
   const validation = validateLoginCredentials({
     account: req.body.account,
     username: req.body.username,
@@ -1837,20 +1993,73 @@ app.post("/api/auth/login", (req, res) => {
     password: req.body.password
   });
   if (!validation.ok) {
-    res.status(400).json({ message: validation.message });
+    res.status(400).json({
+      message: validation.message,
+      remaining: rateLimitResult.remaining
+    });
     return;
   }
 
-  const user = db.prepare(
-    "SELECT * FROM users WHERE lower(username) = lower(?) OR lower(email) = lower(?)"
-  ).get(validation.account, validation.account);
+  const account = validation.account;
+  const isPhoneLogin = /^1[3-9]\d{9}$/.test(account.replace(/\D/g, ""));
+
+  let user;
+  if (isPhoneLogin) {
+    const cleanPhoneVal = cleanPhone(account);
+    user = db.prepare("SELECT * FROM users WHERE phone = ?").get(cleanPhoneVal);
+  } else {
+    user = db.prepare(
+      "SELECT * FROM users WHERE lower(username) = lower(?) OR lower(email) = lower(?)"
+    ).get(account, account);
+  }
+
+  // Check account lock
+  if (user && user.locked_until) {
+    const lockExpiry = new Date(user.locked_until).getTime();
+    if (Date.now() < lockExpiry) {
+      const remainingMinutes = Math.ceil((lockExpiry - Date.now()) / 60000);
+      res.status(423).json({
+        message: `账号已被临时锁定，请 ${remainingMinutes} 分钟后再尝试登录`,
+        lockedUntil: user.locked_until
+      });
+      return;
+    }
+    // Lock expired, reset
+    db.prepare("UPDATE users SET locked_until = NULL, failed_attempts = 0 WHERE id = ?").run(user.id);
+    user.locked_until = null;
+    user.failed_attempts = 0;
+  }
+
   if (!user || !verifyPassword(validation.password, user.password_salt, user.password_hash)) {
-    res.status(401).json({ message: "账号或密码错误" });
+    // Track failed attempt
+    if (user) {
+      const newAttempts = (user.failed_attempts || 0) + 1;
+      if (newAttempts >= LOGIN_LOCK_THRESHOLD) {
+        const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+        db.prepare("UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?")
+          .run(newAttempts, lockUntil, user.id);
+        res.status(423).json({
+          message: "登录失败次数过多，账号已被临时锁定30分钟",
+          lockedUntil: lockUntil
+        });
+        return;
+      }
+      db.prepare("UPDATE users SET failed_attempts = ? WHERE id = ?").run(newAttempts, user.id);
+    }
+
+    res.status(401).json({
+      message: "账号或密码错误",
+      remaining: rateLimitResult.remaining
+    });
     return;
   }
+
+  // Reset failed attempts on successful login
+  db.prepare("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?").run(user.id);
 
   ensureUserState(user.id);
-  createSession(res, user.id);
+  const rememberMe = Boolean(req.body.rememberMe);
+  createSession(res, user.id, rememberMe);
 
   res.json({
     ok: true,
@@ -1861,6 +2070,221 @@ app.post("/api/auth/login", (req, res) => {
 app.post("/api/auth/logout", (req, res) => {
   clearSession(res, req.sessionId);
   res.json({ ok: true });
+});
+
+// ── Email Verification ──
+
+app.post("/api/auth/send-verification-email", requireAuth, (req, res) => {
+  const user = db.prepare("SELECT id, email, email_verified FROM users WHERE id = ?").get(req.user.id);
+  if (!user) {
+    res.status(404).json({ message: "用户不存在" });
+    return;
+  }
+  if (user.email_verified === 1) {
+    res.json({ ok: true, alreadyVerified: true, message: "邮箱已验证，无需重复验证" });
+    return;
+  }
+  if (!user.email) {
+    res.status(400).json({ message: "当前账号未绑定邮箱" });
+    return;
+  }
+
+  // Invalidate old tokens for this user
+  db.prepare("UPDATE email_verifications SET used = 1 WHERE user_id = ? AND used = 0").run(user.id);
+
+  const token = generateVerificationToken(user.id, user.email);
+  const link = getVerificationLink(token);
+  logDevEmail("重新发送验证邮件", user.email, link);
+
+  res.json({ ok: true, message: "验证邮件已发送，请查看收件箱", verificationLink: link });
+});
+
+app.get("/api/auth/verify-email", (req, res) => {
+  const token = String(req.query.token || "").trim();
+  if (!token) {
+    res.status(400).json({ message: "缺少验证 token" });
+    return;
+  }
+
+  const record = db.prepare(
+    "SELECT * FROM email_verifications WHERE token = ? AND used = 0 AND expires_at > ?"
+  ).get(token, nowIso());
+
+  if (!record) {
+    res.status(400).json({ message: "验证链接无效或已过期，请重新发送验证邮件" });
+    return;
+  }
+
+  // Mark as verified
+  db.prepare("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?").run(nowIso(), record.user_id);
+  db.prepare("UPDATE email_verifications SET used = 1 WHERE id = ?").run(record.id);
+
+  // Check if request is from browser (HTML redirect) or API (JSON response)
+  const acceptHeader = req.headers.accept || "";
+  if (acceptHeader.includes("text/html")) {
+    const baseUrl = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+    res.redirect(302, `${baseUrl}/?verified=1`);
+    return;
+  }
+
+  res.json({ ok: true, message: "邮箱验证成功，现在可以正常使用所有功能" });
+});
+
+app.get("/api/auth/verification-status", requireAuth, (req, res) => {
+  const user = db.prepare("SELECT email, email_verified FROM users WHERE id = ?").get(req.user.id);
+  res.json({
+    email: user ? user.email : "",
+    verified: user ? user.email_verified === 1 : false
+  });
+});
+
+// ── Password Reset ──
+
+app.post("/api/auth/forgot-password", (req, res) => {
+  const email = String(req.body.email || "").trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    res.status(400).json({ message: "请输入有效的邮箱地址" });
+    return;
+  }
+
+  const user = db.prepare("SELECT id, email FROM users WHERE lower(email) = lower(?)").get(email);
+  if (!user) {
+    // Don't reveal if email exists (security best practice)
+    res.json({ ok: true, message: "如果该邮箱已注册，重置邮件已发送" });
+    return;
+  }
+
+  // Invalidate old reset tokens
+  db.prepare("UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0").run(user.id);
+
+  const token = generateResetToken(user.id);
+  const resetLink = getResetLink(token);
+  logDevEmail("密码重置", user.email, resetLink);
+
+  res.json({
+    ok: true,
+    message: "如果该邮箱已注册，重置邮件已发送",
+    resetLink
+  });
+});
+
+app.post("/api/auth/reset-password", (req, res) => {
+  const token = String(req.body.token || "").trim();
+  const newPassword = String(req.body.password || "");
+
+  if (!token) {
+    res.status(400).json({ message: "缺少重置 token" });
+    return;
+  }
+
+  const passwordValidation = (() => {
+    const clean = newPassword;
+    if (clean.length < 8 || clean.length > 64) {
+      return { ok: false, message: "密码长度需在8到64个字符之间" };
+    }
+    if (!/[A-Za-z]/.test(clean) || !/[0-9]/.test(clean)) {
+      return { ok: false, message: "密码需同时包含字母和数字" };
+    }
+    return { ok: true, password: clean };
+  })();
+
+  if (!passwordValidation.ok) {
+    res.status(400).json({ message: passwordValidation.message });
+    return;
+  }
+
+  const record = db.prepare(
+    "SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0 AND expires_at > ?"
+  ).get(token, nowIso());
+
+  if (!record) {
+    res.status(400).json({ message: "重置链接无效或已过期，请重新申请密码重置" });
+    return;
+  }
+
+  const passwordRecord = createPasswordRecord(passwordValidation.password);
+  db.prepare(
+    "UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?"
+  ).run(passwordRecord.hash, passwordRecord.salt, nowIso(), record.user_id);
+
+  db.prepare("UPDATE password_reset_tokens SET used = 1 WHERE id = ?").run(record.id);
+
+  // Invalidate all sessions for security
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(record.user_id);
+  res.clearCookie(COOKIE_NAME, sessionCookieBaseOptions());
+
+  res.json({ ok: true, message: "密码重置成功，请使用新密码重新登录" });
+});
+
+// ── Phone Registration ──
+
+app.post("/api/auth/register-phone", (req, res) => {
+  const validation = validatePhoneRegistration({
+    phone: req.body.phone,
+    password: req.body.password,
+    username: req.body.username
+  });
+  if (!validation.ok) {
+    res.status(400).json({ message: validation.message });
+    return;
+  }
+
+  const existingPhone = db.prepare("SELECT id FROM users WHERE phone = ?").get(validation.phone);
+  if (existingPhone) {
+    res.status(400).json({ message: "该手机号已被注册" });
+    return;
+  }
+
+  const existingUsername = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?)").get(validation.username);
+  if (existingUsername) {
+    res.status(400).json({ message: "该用户名已被注册" });
+    return;
+  }
+
+  const userId = generateId();
+  const timestamp = nowIso();
+  const passwordRecord = createPasswordRecord(validation.password);
+
+  db.prepare(
+    `INSERT INTO users (id, username, phone, password_hash, password_salt,
+      email_verified, failed_attempts, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)`
+  ).run(userId, validation.username, validation.phone,
+    passwordRecord.hash, passwordRecord.salt, timestamp, timestamp);
+
+  ensureUserState(userId);
+  createSession(res, userId);
+
+  res.status(201).json({
+    ok: true,
+    ...buildAppPayload(userId)
+  });
+});
+
+// ── Check field availability (for real-time validation) ──
+
+app.post("/api/auth/check-availability", (req, res) => {
+  const field = String(req.body.field || "").trim();
+  const value = String(req.body.value || "").trim();
+
+  if (!field || !value) {
+    res.status(400).json({ message: "缺少查询参数" });
+    return;
+  }
+
+  let existing = null;
+  if (field === "username") {
+    existing = db.prepare("SELECT id FROM users WHERE lower(username) = lower(?)").get(value);
+  } else if (field === "email") {
+    existing = db.prepare("SELECT id FROM users WHERE lower(email) = lower(?)").get(value.toLowerCase());
+  } else if (field === "phone") {
+    existing = db.prepare("SELECT id FROM users WHERE phone = ?").get(cleanPhone(value));
+  } else {
+    res.status(400).json({ message: "不支持的查询字段" });
+    return;
+  }
+
+  res.json({ available: !existing });
 });
 
 app.get("/api/app-state", requireAuth, (req, res) => {
