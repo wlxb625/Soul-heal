@@ -8,14 +8,24 @@ const STATIC_FILES = [
   "app.chat.js",
   "common.runtime.js",
   "styles.css",
+  "yuge-logo.png",
+  "wood-dark.png",
+  "wood-light.png",
   ".nojekyll"
 ];
+const STATIC_DIRECTORIES = ["assets"];
 
 fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(distDir, { recursive: true });
 
 STATIC_FILES.forEach((fileName) => {
   fs.copyFileSync(path.join(rootDir, fileName), path.join(distDir, fileName));
+});
+
+STATIC_DIRECTORIES.forEach((directoryName) => {
+  fs.cpSync(path.join(rootDir, directoryName), path.join(distDir, directoryName), {
+    recursive: true
+  });
 });
 
 const apiBaseUrl = String(process.env.YUGE_API_BASE_URL || "").trim().replace(/\/+$/, "");
