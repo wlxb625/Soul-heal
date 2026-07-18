@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700;800&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=mbti-answer-transition-v4" />
   </head>
   <body>
     <div class="bg-veil" id="bgVeil"></div>
@@ -40,6 +40,30 @@
 
       <div class="auth-shell-inner">
         <div class="auth-hero">
+          <div class="auth-orbit-gallery" aria-label="愈格的两种探索视角">
+            <figure class="auth-orbit-panel auth-orbit-panel--dawn" tabindex="0">
+              <img src="assets/auth-orbit-dawn.png" alt="晨雾水面上的金色星环" />
+              <figcaption>
+                <span>01 · 向内抵达</span>
+                <strong>看见你的自然倾向</strong>
+                <small>让每一次真实选择，慢慢显出自己的轮廓。</small>
+              </figcaption>
+            </figure>
+            <figure class="auth-orbit-panel auth-orbit-panel--night" tabindex="0">
+              <img src="assets/auth-orbit-night.png" alt="夜色水面上通向远方的星轨" />
+              <figcaption>
+                <span>02 · 向前生长</span>
+                <strong>沿着属于你的轨道</strong>
+                <small>理解不是终点，它会变成下一步更轻的方向。</small>
+              </figcaption>
+            </figure>
+          </div>
+          <div class="auth-orbit-sensor" aria-hidden="true">
+            <span class="auth-portal-ring auth-portal-ring--outer"></span>
+            <span class="auth-portal-ring auth-portal-ring--inner"></span>
+            <span class="auth-portal-core"></span>
+            <p>移动至星环<br />看见另一条路径</p>
+          </div>
           <!-- Dynamic background layers -->
           <div class="auth-aurora"></div>
           <div class="auth-bg-layer layer-a"></div>
@@ -167,7 +191,7 @@
 
                 <!-- Submit button -->
                 <button id="authSubmit" class="primary-btn auth-submit" type="submit">
-                  <span class="auth-submit-text">登录</span>
+                  <span class="auth-submit-text" aria-live="polite">登录</span>
                   <span class="auth-spinner hidden">
                     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="31.4 31.4" stroke-linecap="round"/></svg>
                   </span>
@@ -245,9 +269,6 @@
 
       <header class="topbar container">
         <div class="topbar-left">
-          <span id="userPill" class="user-pill hidden"></span>
-        </div>
-        <div class="topbar-center">
           <a href="#home" class="brand-link" aria-label="愈格首页">
             <img src="yuge-logo.png" alt="愈格" class="brand-logo" />
             <div class="brand-text">
@@ -256,7 +277,16 @@
             </div>
           </a>
         </div>
+        <nav class="page-nav topbar-nav" id="moduleNav" aria-label="模块切换">
+          <button class="nav-link active" data-module="home" aria-pressed="true">首页</button>
+          <button class="nav-link" data-module="mbti" aria-pressed="false">MBTI测试</button>
+          <button class="nav-link" data-module="analysis" aria-pressed="false">性格分析</button>
+          <button class="nav-link" data-module="coach" aria-pressed="false">AI助手</button>
+          <button class="nav-link" data-module="progress" aria-pressed="false">进度激励</button>
+          <button class="nav-link" data-module="settings" aria-pressed="false">设置</button>
+        </nav>
         <div class="topbar-right">
+          <span id="userPill" class="user-pill hidden"></span>
           <button id="themeToggle" class="icon-btn" type="button" title="切换深浅色">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
           </button>
@@ -268,24 +298,13 @@
         </div>
       </header>
 
-      <div class="container">
-        <nav class="page-nav" id="moduleNav" aria-label="模块切换">
-          <button class="nav-link active" data-module="home" aria-pressed="true">首页</button>
-          <button class="nav-link" data-module="mbti" aria-pressed="false">MBTI测试</button>
-          <button class="nav-link" data-module="analysis" aria-pressed="false">性格分析</button>
-          <button class="nav-link" data-module="coach" aria-pressed="false">AI助手</button>
-          <button class="nav-link" data-module="progress" aria-pressed="false">进度激励</button>
-          <button class="nav-link" data-module="settings" aria-pressed="false">设置</button>
-        </nav>
-      </div>
-
       <main class="container page-main">
         <section class="card module-panel" id="module-home">
           <div class="home-hero">
             <div class="home-copy">
-              <p class="eyebrow">AI FIRST · HOME</p>
-              <h2 class="home-display">先和 AI 聊聊，再决定今天怎么改变。</h2>
-              <p class="home-lead">愈格会把你的目标拆成温和、具体、能立刻开始的行动步骤。</p>
+              <p class="eyebrow">TODAY'S QUIET FOCUS</p>
+              <h2 class="home-display">今天，不必完成很多。<br />先完成最重要的一件事。</h2>
+              <p class="home-lead">从真实情境开始，把你想改变的部分拆成温和、具体、现在就能做的一步。</p>
               <div class="home-actions">
                 <button id="homeCoachBtn" class="primary-btn hero-btn" type="button">立即使用 AI 助手</button>
                 <button id="homeMbtiBtn" class="ghost-btn hero-btn" type="button">完成 MBTI 测试</button>
@@ -295,8 +314,8 @@
             <div class="hero-stage">
               <div class="hero-screen">
                 <div class="screen-topline">
-                  <span>今日重点</span>
-                  <span>Private Session</span>
+                  <span>今日聚焦</span>
+                  <span>PRIVATE COACHING</span>
                 </div>
                 <h3 id="homeCoachHeadline">AI 改进助手</h3>
                 <p id="homeCoachSummary">选择团队会议、冲突处理、决策时刻等场景，马上得到 3 步建议。</p>
@@ -476,33 +495,74 @@
         </section>
 
         <section class="card module-panel hidden" id="module-mbti">
-          <div class="module-head">
-            <h2>MBTI 测试（56题）</h2>
-            <span class="module-chip">自动保存进度</span>
-          </div>
-          <p class="muted">请按真实倾向作答。结果包含信度和匹配度，仅作成长参考。</p>
-          <div class="manual-mbti-card">
-            <div class="manual-mbti-copy">
-              <span class="module-chip">已知类型可直达</span>
-              <h3>我已知道自己的 MBTI</h3>
-              <p class="muted">适合已经在别处测试过、想直接开始使用愈格的用户。保存后会立即同步到首页、分析页和 AI 助手上下文。</p>
+          <div class="mbti-journey-shell">
+            <div class="mbti-orbit-scene" id="mbtiOrbitScene">
+              <div class="mbti-orbit-pin">
+                <div class="mbti-orbit-field" aria-hidden="true">
+                  <i class="mbti-orbit mbti-orbit--one"></i>
+                  <i class="mbti-orbit mbti-orbit--two"></i>
+                  <i class="mbti-orbit mbti-orbit--three"></i>
+                  <b class="mbti-orbit-star star-one"></b><b class="mbti-orbit-star star-two"></b><b class="mbti-orbit-star star-three"></b>
+                </div>
+                <div class="mbti-observatory">
+                  <span class="mbti-observatory-mark" aria-hidden="true">MBTI · 56</span>
+                  <header class="mbti-arrival">
+              <div class="mbti-arrival-copy">
+                <p class="mbti-overline">PERSONALITY MAP · 56 ITEMS</p>
+                <h2>从真实反应开始，<br />看见更接近自己的你。</h2>
+                <p>没有标准答案。请选择你在大多数日子里更自然的倾向，结果会成为后续分析和 AI 建议的个人坐标。</p>
+              </div>
+              <div class="mbti-route" aria-label="测试节奏：56 题，约 8 分钟，可随时保存">
+                <span class="mbti-route-number">56</span>
+                <span class="mbti-route-label">题<br />约 8 分钟</span>
+                <div class="mbti-route-line" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+                <small>答案会自动保存</small>
+              </div>
+                  </header>
+
+                  <div class="mbti-trust-line">
+                    <span>按真实倾向作答</span><i></i><span>不是能力评判</span><i></i><span>结果仅作成长参考</span>
+                  </div>
+
+                  <button id="startMbtiTestBtn" class="primary-btn mbti-start-test" type="button">
+                    开始正式测试 <span aria-hidden="true">↓</span>
+                  </button>
+
+                  <details class="manual-mbti-drawer">
+                    <summary>
+                      <span>已经知道自己的 MBTI？</span>
+                      <small>直接填入类型 <b>＋</b></small>
+                    </summary>
+                    <div class="manual-mbti-card">
+                      <div class="manual-mbti-copy">
+                        <span class="module-chip">已知类型可直达</span>
+                        <h3>使用已有测试结果</h3>
+                        <p class="muted">保存后会同步到首页、分析页和 AI 助手；正式完成 56 题后会自动覆盖手动结果。</p>
+                      </div>
+                      <div class="manual-mbti-controls">
+                        <label for="manualMbtiSelect">16 型选择</label>
+                        <select id="manualMbtiSelect"></select>
+                        <button id="saveManualMbtiBtn" class="primary-btn" type="button">保存为当前人格类型</button>
+                        <p id="manualMbtiHint" class="muted">也可以继续完成正式测试。</p>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
             </div>
-            <div class="manual-mbti-controls">
-              <label for="manualMbtiSelect">16 型选择</label>
-              <select id="manualMbtiSelect"></select>
-              <button id="saveManualMbtiBtn" class="primary-btn" type="button">保存为当前人格类型</button>
-              <p id="manualMbtiHint" class="muted">你也可以继续完成 56 题测试，正式测试结果会覆盖手动选择。</p>
+
+            <div class="mbti-answer-stage">
+              <div id="questionBox" class="question-box"></div>
+              <div id="optionBox" class="option-box"></div>
+              <div class="nav-row">
+                <button id="prevQuestion" class="ghost-btn" type="button">上一题</button>
+                <button id="nextQuestion" class="ghost-btn" type="button">下一题</button>
+                <button id="finishTest" class="primary-btn" type="button">完成并分析</button>
+              </div>
+              <div id="questionDots" class="dots"></div>
+              <div id="mbtiResult" class="result-box hidden"></div>
             </div>
           </div>
-          <div id="questionBox" class="question-box"></div>
-          <div id="optionBox" class="option-box"></div>
-          <div class="nav-row">
-            <button id="prevQuestion" class="ghost-btn" type="button">上一题</button>
-            <button id="nextQuestion" class="ghost-btn" type="button">下一题</button>
-            <button id="finishTest" class="primary-btn" type="button">完成并分析</button>
-          </div>
-          <div id="questionDots" class="dots"></div>
-          <div id="mbtiResult" class="result-box hidden"></div>
         </section>
 
         <section class="card module-panel hidden" id="module-analysis">
@@ -794,7 +854,17 @@
 
     <div id="toast" class="toast"></div>
 
-    <!-- Breathing light button -->
+    <!-- Scroll continuation for the bordered AI focus card -->
+    <button class="home-dynamic-island" id="homeDynamicIsland" type="button" aria-label="继续今日 AI 聚焦" aria-hidden="true" tabindex="-1">
+      <span class="home-island-beacon" aria-hidden="true"></span>
+      <span class="home-island-copy">
+        <strong id="homeIslandTitle">AI 今日聚焦</strong>
+        <small id="homeIslandDetail">继续整理你的下一步</small>
+      </span>
+      <span class="home-island-arrow" aria-hidden="true">↗</span>
+    </button>
+
+    <!-- Breathing light and its expandable guidance panel -->
     <button class="breath-button" id="breathButton" type="button" aria-label="深呼吸导引">
       <span class="breath-icon">
         <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
@@ -804,7 +874,21 @@
         </svg>
       </span>
     </button>
-    <div class="breath-toast" id="breathToast">今天，请记得深呼吸3次</div>
+    <aside class="breath-panel" id="breathPanel" aria-hidden="true" aria-label="30 秒呼吸引导">
+      <div class="breath-panel-topline">
+        <span class="breath-panel-kicker">30 秒回到自己</span>
+        <button class="breath-panel-close" id="breathCloseButton" type="button" aria-label="收起呼吸引导">×</button>
+      </div>
+      <h3 id="breathPhase">先让肩膀放下来</h3>
+      <p id="breathDetail">接下来完成 3 轮：吸气 4 秒、停留 2 秒、缓慢呼气 6 秒。</p>
+      <div class="breath-steps" aria-label="呼吸步骤">
+        <span>吸气 4s</span><i></i><span>停留 2s</span><i></i><span>呼气 6s</span>
+      </div>
+      <div class="breath-panel-actions">
+        <button class="primary-btn" id="breathStartButton" type="button">开始 3 轮呼吸</button>
+        <button class="text-btn" id="breathCoachButton" type="button">需要聊聊</button>
+      </div>
+    </aside>
 
     <div id="onboardingModal" class="modal hidden">
       <div class="modal-card">
@@ -830,7 +914,6 @@
     <script src="runtime-config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="common.runtime.js"></script>
-    <script src="app.chat.js"></script>
-    <script src="shatter-effect.js"></script>
+    <script src="app.chat.js?v=mbti-answer-transition-v4"></script>
   </body>
 </html>
