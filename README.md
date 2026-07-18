@@ -1,45 +1,60 @@
 # 愈格 · AI Personality Coach
 
-愈格是一个面向个人成长的 Web 应用，围绕 MBTI 测试、性格分析、AI 对话建议、结构化行动计划和计划簿执行形成闭环。
+愈格是一个帮助用户理解人格倾向、获得 AI 建议并把建议落实为行动的个人成长 Web 应用。
 
-线上地址：[https://yuge-personality-suite.netlify.app](https://yuge-personality-suite.netlify.app)
+线上体验：[yuge-personality-suite.netlify.app](https://yuge-personality-suite.netlify.app)
 
-当前部署方案：
+## 能做什么
 
-- **Netlify**：托管前端静态页面，并运行 AI 代理函数
-- **Supabase Auth**：邮箱注册、登录和会话管理
-- **Supabase Postgres**：保存每个用户的测试结果、AI 会话、计划簿和设置
-- **用户自带 AI Key**：在设置页填写公网 OpenAI 兼容接口和模型名称
+### 1. MBTI 人格探索
 
-## 主要功能
+- 提供 56 题 MBTI 正式测试，作答进度自动保存。
+- 支持从人格引导场景进入答题工作台；在减弱动态模式下直接进入题目，保证可访问性。
+- 已完成测试会生成类型、信度与匹配度；也可以随时重新测试。
+- 已有结果的用户可直接选择 16 型人格，立即同步到其他模块。
 
-- 邮箱注册 / 登录
-- 注册邮箱格式校验和密码强度校验
-- MBTI 56 题测试
-- 手动选择 16 型人格
-- 性格分析、可信度、匹配度和雷达画像
-- AI 助手读取性格特点、MBTI、当前场景和历史对话后给出建议
-- AI 回复结构化计划，可加入计划簿
-- 计划簿任务打钩、达成阈值、进度统计
-- 深色 / 浅色主题
-- 自定义 Base URL、API Key、模型名称
+### 2. 性格画像与成长参考
 
-## 项目结构
+- 根据 MBTI 输出性格概览、优势、可提升方向与相处建议。
+- 以雷达图和具体文字说明呈现人格特征，不把类型当作能力评判。
+- 首页会汇总当前人格、行动进度与 AI 对话入口。
 
-```text
-personality-improvement-suite/
-├─ index.html                  # 单页应用入口
-├─ app.chat.js                 # 页面交互、渲染和模块切换
-├─ common.runtime.js           # Supabase 运行时、状态同步、AI 调用
-├─ styles.css                  # 页面样式
-├─ runtime-config.js           # 本地运行时配置占位文件
-├─ server.js                   # 本地开发后端
-├─ netlify.toml                # Netlify 构建、函数和路由配置
-├─ netlify/functions/coach.js  # 线上 AI 代理函数
-├─ scripts/build-netlify.js    # Netlify 构建脚本
-├─ supabase/schema.sql         # Supabase 数据表和 RLS 策略
-└─ test/                       # 回归测试
-```
+### 3. AI 结构化计划助手
+
+- 用户可以围绕目标、困扰或场景与 AI 对话。
+- AI 会结合人格类型、当前场景和历史对话给出更贴近用户的建议。
+- 建议可整理为分组行动计划，直接加入计划簿持续推进。
+
+### 4. 计划簿与进度激励
+
+- 计划支持任务勾选、完成阈值、进行中/已达成统计与成长进度。
+- 首页使用动态场景呈现今日聚焦与计划概览；随滚动切换为紧凑的行动入口。
+- 提供连续打卡、徽章和活动记录，帮助把一次建议变成持续行动。
+
+### 5. 登录与个性化体验
+
+- 支持邮箱注册、登录、密码校验和验证提醒。
+- 登录页使用双状态星环场景：晨景与夜景通过交互切换，但表单始终保持清晰可用。
+- 支持浅色 / 深色主题，并兼顾深色模式下的文字对比度。
+- 可在设置中配置 OpenAI 兼容接口、模型名称和个人偏好。
+
+## 页面模块
+
+| 模块 | 作用 |
+| --- | --- |
+| 首页 | 今日聚焦、人格概览、AI 入口与计划进度 |
+| MBTI 测试 | 56 题测试、已有类型录入、测试结果管理 |
+| 性格分析 | 类型画像、优势、成长方向与相处建议 |
+| AI 助手 | 目标对话、结构化建议与计划生成 |
+| 进度激励 | 计划统计、打卡、徽章与成长记录 |
+| 设置 | 主题、人格类型、AI 服务与账号偏好 |
+
+## 技术与数据
+
+- 前端：原生 HTML、CSS、JavaScript 单页应用。
+- 认证与数据：Supabase Auth + Postgres，使用 RLS 隔离用户数据。
+- AI：浏览器通过 Netlify Function 调用 OpenAI 兼容服务，不直接暴露服务端密钥。
+- 部署：Netlify 构建静态前端并提供 AI 代理函数。
 
 ## 本地运行
 
@@ -50,100 +65,43 @@ npm install
 npm start
 ```
 
-打开：
+默认访问地址：
 
 ```text
 http://localhost:3000
 ```
 
-本地开发时可以使用 `.env.example` 作为参考配置。没有配置 Supabase 时，项目仍可通过本地 `server.js` 调试基础功能。
+未配置 Supabase 时，仍可通过本地 `server.js` 调试基础前端流程。
 
 ## Supabase 配置
 
-1. 创建 Supabase 项目。
-2. 打开 Supabase SQL Editor。
-3. 执行 `supabase/schema.sql`。
-4. 打开 Project Settings -> API，复制：
-   - Project URL
-   - anon public key
-5. 在 Netlify 环境变量中填写：
+1. 创建 Supabase 项目并执行 `supabase/schema.sql`。
+2. 在 Netlify 环境变量中配置：
 
 ```text
 YUGE_SUPABASE_URL=https://your-project.supabase.co
 YUGE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-`app_states` 表已启用 RLS，每个用户只能读取和更新自己的状态。
+`app_states` 已启用 RLS，每位用户只能读取和更新自己的应用状态。
 
-## Netlify 部署
+## AI 服务配置
 
-Netlify 配置在 `netlify.toml`。
-
-构建命令：
-
-```bash
-node scripts/build-netlify.js
-```
-
-发布目录：
+登录后进入“设置”，填写可从公网访问的 OpenAI 兼容接口：
 
 ```text
-dist
-```
-
-线上 AI 请求通过 `/.netlify/functions/coach` 转发，浏览器不会直接请求模型厂商接口。
-
-手动部署命令：
-
-```bash
-npx netlify deploy --prod --build
-```
-
-## AI 设置
-
-登录后进入“设置”，填写公网 AI 接口信息：
-
-```text
-服务商：OpenAI 兼容接口
 Base URL：https://你的公网模型接口/v1
-模型名称：你要调用的模型名称
-API Key：你的模型服务 API Key
+模型名称：要使用的模型名称
+API Key：模型服务 API Key
 ```
 
-不要把本地地址填到线上站点里，例如：
+不要为线上站点配置 `127.0.0.1`、`localhost` 或局域网地址；Netlify 无法访问个人电脑上的服务。
 
-```text
-http://127.0.0.1:8317/v1
-```
-
-Netlify 线上环境无法访问你电脑上的本地服务。
-
-如果你本地用代理工具或本机模型服务测试成功，也不能直接把 `127.0.0.1`、`localhost` 或局域网地址填到线上站点。线上站点只能访问公网可达的 HTTPS/API 地址。
-
-如果 AI 助手提示模型响应超时，通常不是 URL 填错，而是模型回复超过了 Netlify Function 的执行时间限制。可以换更快的模型，或改用执行时间更长的后端来代理 AI 请求。
-
-## 验证
+## 验证与构建
 
 ```bash
 npm test
-node --check common.runtime.js
-node --check app.chat.js
-node --check netlify/functions/coach.js
-node --check scripts/build-netlify.js
-```
-
-## 常用命令
-
-```bash
-# 本地开发
-npm start
-
-# 跑测试
-npm test
-
-# 构建 Netlify 静态文件
 node scripts/build-netlify.js
-
-# 部署生产站
-npx netlify deploy --prod --build
 ```
+
+构建产物位于 `dist`，Netlify 配置见 `netlify.toml`。

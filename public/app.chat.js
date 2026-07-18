@@ -162,6 +162,7 @@ const els = {
   optionBox: document.getElementById("optionBox"),
   questionDots: document.getElementById("questionDots"),
   mbtiResult: document.getElementById("mbtiResult"),
+  startMbtiTestBtn: document.getElementById("startMbtiTestBtn"),
   manualMbtiSelect: document.getElementById("manualMbtiSelect"),
   saveManualMbtiBtn: document.getElementById("saveManualMbtiBtn"),
   manualMbtiHint: document.getElementById("manualMbtiHint"),
@@ -242,6 +243,8 @@ init();
 
 async function init() {
   bindEvents();
+  initAuthPortalReveal();
+  initMbtiOrbitScene();
   ensureMbtiSelectOptions(els.manualMbtiSelect);
   ensureMbtiSelectOptions(els.settingsMbtiSelect);
 
@@ -383,6 +386,29 @@ function bindEvents() {
 
   els.homeCoachBtn.addEventListener("click", () => switchModule("coach"));
   els.homeMbtiBtn.addEventListener("click", () => switchModule("mbti"));
+  els.startMbtiTestBtn.addEventListener("click", () => {
+    const mbtiPanel = els.panels.mbti;
+    const answerStage = document.querySelector(".mbti-answer-stage");
+    if (!answerStage) return;
+    const enterAnswerMode = () => {
+      mbtiPanel.classList.remove("mbti-transitioning");
+      mbtiPanel.classList.add("mbti-answer-mode");
+      answerStage.scrollIntoView({ behavior: "auto", block: "start" });
+      answerStage.querySelector('input[name="answer"], [data-mbti-action="start-test"], [data-mbti-action="reset"]')?.focus();
+    };
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      enterAnswerMode();
+      return;
+    }
+
+    if (mbtiTestTransitionTimer || mbtiPanel.classList.contains("mbti-answer-mode")) return;
+    mbtiPanel.classList.add("mbti-transitioning");
+    mbtiTestTransitionTimer = window.setTimeout(() => {
+      mbtiTestTransitionTimer = 0;
+      enterAnswerMode();
+    }, 760);
+  });
 
   els.closeOnboarding.addEventListener("click", async () => {
     try {
@@ -584,8 +610,12 @@ function updateAuthSubmitButton(text) {
 }
 
 function setAuthLoading(loading, text) {
+  if (!els.authSubmit) return;
+  const idleText = authMode === "login" ? "登录" : "注册";
+  updateAuthSubmitButton(loading ? (text || "处理中...") : idleText);
   els.authSubmit.disabled = loading;
-  if (els.authSubmitText) els.authSubmitText.textContent = text || (loading ? "处理中..." : "");
+  els.authSubmit.classList.toggle("is-loading", loading);
+  els.authSubmit.setAttribute("aria-busy", String(loading));
   if (els.authSpinner) els.authSpinner.classList.toggle("hidden", !loading);
 }
 
@@ -858,7 +888,7 @@ async function handleAuthSubmit(event) {
 
 function showAuthServerError(message) {
   if (els.authServerError) {
-    els.authServerError.textContent = message;
+    els.authServerError.textContent = message || "登录暂时不可用，请稍后重试";
     els.authServerError.classList.remove("hidden");
     setTimeout(() => els.authServerError.classList.add("hidden"), 8000);
   }
@@ -967,6 +997,8 @@ function switchModule(moduleName, writeURL = true) {
     button.classList.toggle("active", isCurrent);
     button.setAttribute("aria-pressed", isCurrent ? "true" : "false");
   });
+  const orbitIndex = MODULE_NAMES.indexOf(moduleName);
+  els.moduleNav.style.setProperty("--nav-orbit-x", `${((orbitIndex + 0.5) / MODULE_NAMES.length) * 100}%`);
 
   if (writeURL) {
     const nextHash = moduleName === "home" ? "" : `#${moduleName}`;
@@ -974,11 +1006,62 @@ function switchModule(moduleName, writeURL = true) {
   }
 
   if (moduleName === "home") renderHome();
-  if (moduleName === "mbti") renderMBTI();
+  if (moduleName === "mbti") {
+    renderMBTI();
+    initMbtiOrbitScene();
+  }
   if (moduleName === "analysis") renderAnalysis();
   if (moduleName === "coach") renderCoach();
   if (moduleName === "progress") renderProgress();
   if (moduleName === "settings") renderSettings();
+  scheduleHomeSceneMotion(moduleName === "home");
+}
+
+function initAuthPortalReveal() {
+  const sensor = document.querySelector(".auth-orbit-sensor");
+  if (!sensor || !els.authShell) return;
+  const setActive = (active) => els.authShell.classList.toggle("auth-portal-active", active);
+  sensor.addEventListener("pointerenter", () => setActive(true));
+  sensor.addEventListener("pointerleave", () => setActive(false));
+  sensor.addEventListener("focusin", () => setActive(true));
+  sensor.addEventListener("focusout", () => setActive(false));
+}
+
+function initMbtiOrbitScene() {
+  const scene = document.getElementById("mbtiOrbitScene");
+  if (!scene || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (scene._orbitUpdate) {
+    scene._orbitUpdate();
+    return;
+  }
+
+  let frame = 0;
+  const update = () => {
+    frame = 0;
+    if (window.innerWidth <= 860) {
+      scene.style.setProperty("--mbti-p", "0");
+      scene.style.setProperty("--mbti-scale", "1");
+      scene.style.setProperty("--mbti-radius", "22px");
+      return;
+    }
+    const rect = scene.getBoundingClientRect();
+    const distance = Math.max(1, scene.offsetHeight - window.innerHeight);
+    const progress = Math.max(0, Math.min(1, -rect.top / distance));
+    scene.style.setProperty("--mbti-p", progress.toFixed(4));
+    scene.style.setProperty("--mbti-scale", (0.82 + progress * 0.29).toFixed(4));
+    scene.style.setProperty("--mbti-radius", `${Math.max(0, 28 - progress * 28).toFixed(2)}px`);
+    scene.style.setProperty("--mbti-rotate", `${(-13 + progress * 28).toFixed(2)}deg`);
+    scene.style.setProperty("--mbti-field-scale", (1.03 + progress * 0.12).toFixed(4));
+  };
+  const requestUpdate = () => {
+    if (!frame) frame = window.requestAnimationFrame(update);
+  };
+
+  scene._orbitUpdate = requestUpdate;
+  window.addEventListener("scroll", requestUpdate, { passive: true });
+  document.addEventListener("scroll", requestUpdate, { passive: true, capture: true });
+  window.addEventListener("resize", requestUpdate, { passive: true });
+  requestUpdate();
 }
 
 function hydrateLatestCoachResponse() {
@@ -4081,33 +4164,206 @@ function initMouseEffects() {
 
 function initBreathButton() {
   const btn = document.getElementById("breathButton");
-  const toast = document.getElementById("breathToast");
-  if (!btn || !toast) return;
+  const panel = document.getElementById("breathPanel");
+  const closeBtn = document.getElementById("breathCloseButton");
+  const startBtn = document.getElementById("breathStartButton");
+  const coachBtn = document.getElementById("breathCoachButton");
+  const phase = document.getElementById("breathPhase");
+  const detail = document.getElementById("breathDetail");
+  if (!btn || !panel || !closeBtn || !startBtn || !coachBtn || !phase || !detail) return;
 
-  let toastTimer = null;
+  let breathTimers = [];
 
-  btn.addEventListener("click", () => {
-    toast.classList.add("show");
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      toast.classList.remove("show");
-    }, 3000);
+  const clearBreathTimers = () => {
+    breathTimers.forEach((timer) => clearTimeout(timer));
+    breathTimers = [];
+  };
 
-    // Pulse the button
-    btn.style.transform = "scale(0.92)";
-    setTimeout(() => {
-      btn.style.transform = "";
-    }, 200);
+  const setOpen = (open) => {
+    panel.classList.toggle("show", open);
+    panel.setAttribute("aria-hidden", open ? "false" : "true");
+    btn.classList.toggle("is-open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    document.body.classList.toggle("breath-panel-open", open);
+  };
+
+  const resetGuide = () => {
+    clearBreathTimers();
+    panel.classList.remove("is-guiding");
+    phase.textContent = "先让肩膀放下来";
+    detail.textContent = "接下来完成 3 轮：吸气 4 秒、停留 2 秒、缓慢呼气 6 秒。";
+    startBtn.disabled = false;
+    startBtn.textContent = "开始 3 轮呼吸";
+  };
+
+  btn.addEventListener("click", () => setOpen(!panel.classList.contains("show")));
+  closeBtn.addEventListener("click", () => {
+    resetGuide();
+    setOpen(false);
+  });
+
+  startBtn.addEventListener("click", () => {
+    resetGuide();
+    panel.classList.add("is-guiding");
+    startBtn.disabled = true;
+    startBtn.textContent = "正在陪你呼吸…";
+
+    const phases = [
+      { title: "吸气 · 4 秒", detail: "轻轻吸气，让注意力回到身体。", duration: 4000 },
+      { title: "停留 · 2 秒", detail: "不用用力，安静地停在这一刻。", duration: 2000 },
+      { title: "呼气 · 6 秒", detail: "慢一点呼出，把紧绷感一起放下。", duration: 6000 }
+    ];
+    let current = 0;
+
+    const advance = () => {
+      if (current >= phases.length * 3) {
+        panel.classList.remove("is-guiding");
+        phase.textContent = "完成了，做得很好";
+        detail.textContent = "你刚刚为自己留出了 36 秒。现在可以带着更稳定的状态继续下一步。";
+        startBtn.disabled = false;
+        startBtn.textContent = "再来 3 轮";
+        return;
+      }
+
+      const step = phases[current % phases.length];
+      const round = Math.floor(current / phases.length) + 1;
+      phase.textContent = `${step.title} · 第 ${round}/3 轮`;
+      detail.textContent = step.detail;
+      current += 1;
+      breathTimers.push(setTimeout(advance, step.duration));
+    };
+
+    advance();
+  });
+
+  coachBtn.addEventListener("click", () => {
+    resetGuide();
+    setOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    switchModule("coach");
   });
 }
 
 /* ── Initialize all dashboard effects ── */
+
+/* The browser-wide scroll timeline API is not enabled everywhere. These tiny
+   rAF-driven variables make the 3D camera transition feel the same in every
+   modern browser, without putting scroll work on the main event itself. */
+let homeSceneMotionFrame = 0;
+let homeSceneHeroRestTop = null;
+let homeSceneDashboardRestTop = null;
+let homeScenePlanRestTop = null;
+let homeSceneMotionBound = false;
+let mbtiTestTransitionTimer = 0;
+
+function homeSceneClamp(value, min = 0, max = 1) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function scheduleHomeSceneMotion(resetRestingPoint = false) {
+  if (resetRestingPoint) {
+    homeSceneHeroRestTop = null;
+    homeSceneDashboardRestTop = null;
+    homeScenePlanRestTop = null;
+  }
+
+  if (homeSceneMotionFrame) return;
+  homeSceneMotionFrame = requestAnimationFrame(() => {
+    homeSceneMotionFrame = 0;
+
+    const hero = document.querySelector(".home-hero");
+    const dashboard = document.querySelector(".home-dashboard");
+    const planGrid = document.querySelector(".plan-dash-grid");
+    const island = document.getElementById("homeDynamicIsland");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!hero || activeModule !== "home" || reducedMotion) {
+      document.body.classList.remove("home-island-active");
+      if (island) {
+        island.classList.remove("is-visible");
+        island.setAttribute("aria-hidden", "true");
+        island.tabIndex = -1;
+      }
+      [hero, dashboard, planGrid].filter(Boolean).forEach((element) => element.removeAttribute("style"));
+      return;
+    }
+
+    const heroRect = hero.getBoundingClientRect();
+    if (homeSceneHeroRestTop === null || heroRect.top > homeSceneHeroRestTop + 8) {
+      homeSceneHeroRestTop = heroRect.top;
+    }
+    const heroProgress = homeSceneClamp(
+      (homeSceneHeroRestTop - heroRect.top) / Math.max(heroRect.height * 0.82, 1)
+    );
+
+    hero.style.setProperty("--home-hero-y", `${(-30 * heroProgress).toFixed(2)}px`);
+    hero.style.setProperty("--home-hero-scale", `${(1 - heroProgress * 0.045).toFixed(4)}`);
+    hero.style.setProperty("--home-hero-saturation", `${(1 - heroProgress * 0.16).toFixed(3)}`);
+    hero.style.setProperty("--home-hero-brightness", `${(1 - heroProgress * 0.11).toFixed(3)}`);
+    hero.style.setProperty("--home-copy-y", `${(-14 * heroProgress).toFixed(2)}px`);
+    hero.style.setProperty("--home-copy-z", `${(36 - heroProgress * 28).toFixed(2)}px`);
+    hero.style.setProperty("--home-stage-x", `${(-18 * heroProgress).toFixed(2)}px`);
+    hero.style.setProperty("--home-stage-y", `${(-10 * heroProgress).toFixed(2)}px`);
+    hero.style.setProperty("--home-stage-z", `${(64 - heroProgress * 48).toFixed(2)}px`);
+
+    const islandActive = heroProgress > 0.34;
+    document.body.classList.toggle("home-island-active", islandActive);
+    if (island) {
+      island.classList.toggle("is-visible", islandActive);
+      island.setAttribute("aria-hidden", islandActive ? "false" : "true");
+      island.tabIndex = islandActive ? 0 : -1;
+    }
+
+    if (dashboard) {
+      const dashboardRect = dashboard.getBoundingClientRect();
+      if (homeSceneDashboardRestTop === null || dashboardRect.top > homeSceneDashboardRestTop + 8) {
+        homeSceneDashboardRestTop = dashboardRect.top;
+      }
+      const dashboardProgress = homeSceneClamp(
+        (homeSceneDashboardRestTop - dashboardRect.top) / Math.max(window.innerHeight * 0.62, 1)
+      );
+      dashboard.style.setProperty("--home-dashboard-y", `${((1 - dashboardProgress) * 42).toFixed(2)}px`);
+      dashboard.style.setProperty("--home-dashboard-opacity", `${(0.48 + dashboardProgress * 0.52).toFixed(3)}`);
+    }
+
+    if (planGrid) {
+      const planRect = planGrid.getBoundingClientRect();
+      if (homeScenePlanRestTop === null || planRect.top > homeScenePlanRestTop + 8) {
+        homeScenePlanRestTop = planRect.top;
+      }
+      const planProgress = homeSceneClamp(
+        (homeScenePlanRestTop - planRect.top) / Math.max(window.innerHeight * 0.55, 1)
+      );
+      planGrid.style.setProperty("--home-plan-y", `${((1 - planProgress) * 30).toFixed(2)}px`);
+      planGrid.style.setProperty("--home-plan-tilt", `${((1 - planProgress) * 2.5).toFixed(2)}deg`);
+      planGrid.style.setProperty("--home-plan-opacity", `${(0.60 + planProgress * 0.40).toFixed(3)}`);
+    }
+  });
+}
+
+function initHomeSceneMotion() {
+  const island = document.getElementById("homeDynamicIsland");
+  if (island && !island.dataset.bound) {
+    island.dataset.bound = "true";
+    island.addEventListener("click", () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      switchModule("coach");
+    });
+  }
+  if (!homeSceneMotionBound) {
+    homeSceneMotionBound = true;
+    window.addEventListener("scroll", () => scheduleHomeSceneMotion(), { passive: true });
+    window.addEventListener("resize", () => scheduleHomeSceneMotion(true));
+  }
+  scheduleHomeSceneMotion(true);
+}
 
 const _origRenderHome = renderHome;
 renderHome = function() {
   _origRenderHome();
   initDashboard();
   syncDashboardFromState();
+  initHomeSceneMotion();
 };
 
 function syncDashboardFromState() {
@@ -4130,6 +4386,21 @@ function syncDashboardFromState() {
     } else {
       entryTitle.textContent = "需要更具体的建议？";
       entryDesc.textContent = "和 AI 助手聊聊你的实际场景，马上得到分组行动计划。";
+    }
+  }
+
+  const islandTitle = document.getElementById("homeIslandTitle");
+  const islandDetail = document.getElementById("homeIslandDetail");
+  if (islandTitle && islandDetail) {
+    if (currentPlan) {
+      islandTitle.textContent = currentPlan.planName || "继续当前计划";
+      islandDetail.textContent = `已完成 ${currentPlan.completedTasks}/${currentPlan.totalTasks} 项 · 点击继续`;
+    } else if (metrics.activeCount > 0) {
+      islandTitle.textContent = "你的下一步正在等待";
+      islandDetail.textContent = `${metrics.activeCount} 个计划进行中 · 点击查看建议`;
+    } else {
+      islandTitle.textContent = "AI 今日聚焦";
+      islandDetail.textContent = "从一个真实场景开始，得到分组行动计划";
     }
   }
 }
