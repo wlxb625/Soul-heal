@@ -41,7 +41,7 @@ test("registration password requires length, letters, and numbers", () => {
   );
 });
 
-test("login accepts username or email as account identifier", () => {
+test("login validation accepts an email account identifier", () => {
   assert.deepEqual(validateLoginCredentials({ account: "tester@example.com", password: "abc12345" }), {
     ok: true,
     account: "tester@example.com",
@@ -59,3 +59,4 @@ test("settings page uses text input for custom model names", () => {
   assert.match(html, /<input[^>]+id="apiModelInput"/);
   assert.doesNotMatch(html, /<select[^>]+id="apiModelSelect"/);
 });
+

@@ -64,7 +64,7 @@ async function readJsonResponseSafe(response) {
 
 function extractErrorMessage(error) {
   if (error?.name === "AbortError" || error?.name === "TimeoutError") {
-    return "模型响应超时。请优先使用 deepseek-chat，或稍后重试；如果仍然超时，需要换更快的模型或更长超时的后端。";
+    return "AI 服务响应超时。请稍后重试；如果持续发生，请在“设置”中检查服务商、模型和 API Key。";
   }
   const message = String(error?.error?.message || error?.message || "未知错误").trim();
   return message.replace(/\s+/g, " ").slice(0, 240);
@@ -330,3 +330,4 @@ exports.handler = async (event) => {
     return json(502, { message: `你的 AI 接口请求失败：${extractErrorMessage(error)}` });
   }
 };
+
