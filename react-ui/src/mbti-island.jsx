@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { gsap } from "gsap";
-import BorderGlow from "./components/BorderGlow";
 import "./mbti-island.css";
 
 const TOTAL_QUESTIONS = 56;
@@ -57,7 +56,7 @@ function MbtiNavigator() {
 
 const mountNode = document.getElementById("reactMbtiNavigator");
 if (mountNode) {
-  createRoot(mountNode).render(<BorderGlow className="react-mbti-glow" animated edgeSensitivity={24} glowColor="42 62 58" backgroundColor="rgba(255,253,247,.76)" borderRadius={20} colors={["#e3bd72", "#9ed9c5", "#81b3cd"]}><MbtiNavigator /></BorderGlow>);
+  createRoot(mountNode).render(<MbtiNavigator />);
   window.__YugeMbtiNavigatorReady = true;
   window.dispatchEvent(new CustomEvent("yuge:mbti-react-ready"));
 }

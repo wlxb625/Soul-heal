@@ -12,7 +12,6 @@ const STATIC_FILES = [
   "index.html",
   "app.chat.js",
   "common.runtime.js",
-  "site-motion.js",
   "styles.css",
   "yuge-logo.png",
   "wood-dark.png",

@@ -1114,8 +1114,6 @@ function switchModule(moduleName, writeURL = true) {
     panel.classList.toggle("hidden", name !== moduleName);
     panel.setAttribute("aria-hidden", name !== moduleName ? "true" : "false");
   });
-  const activePanel = els.panels[moduleName];
-  animateModulePanel(activePanel);
 
   els.moduleNav.querySelectorAll("[data-module]").forEach((button) => {
     const isCurrent = button.dataset.module === moduleName;
@@ -1140,7 +1138,6 @@ function switchModule(moduleName, writeURL = true) {
   if (moduleName === "progress") renderProgress();
   if (moduleName === "settings") renderSettings();
   scheduleHomeSceneMotion(moduleName === "home");
-  window.dispatchEvent(new CustomEvent("yuge:module-changed", { detail: { moduleName, panel: activePanel } }));
 }
 
 function openCoachWorkspace() {
