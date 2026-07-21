@@ -137,6 +137,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(applyCors);
 app.use(loadSession);
 app.use(express.static(PUBLIC_DIR));
+app.use("/assets/react-mbti", express.static(path.join(__dirname, "assets", "react-mbti")));
 
 function applyCors(req, res, next) {
   const origin = req.headers.origin;

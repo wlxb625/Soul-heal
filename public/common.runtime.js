@@ -487,7 +487,990 @@ function resetAuthState() {
 }
 
 function applyTheme() {
-…7723 tokens truncated…ookEntries: current.planBookEntries.map((entry) => {
+  document.documentElement.setAttribute("data-theme", state.theme);
+}
+
+function cryptoRandomId() {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function dispatchAuthRequired() {
+  window.dispatchEvent(new CustomEvent("app:auth-required"));
+}
+
+function getApiUrl(url) {
+  const baseUrl = String(window.YUGE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (!baseUrl || /^https?:\/\//i.test(url)) {
+    return url;
+  }
+  return `${baseUrl}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+function isAiApiRequest(url) {
+  const path = String(url || "").toLowerCase();
+  return path.includes("/.netlify/functions/coach") || path.includes("/api/coach") || path.includes("/api/ai-");
+}
+
+function normalizeApiErrorMessage(message, status, url) {
+  const text = String(message || "").replace(/\s+/g, " ").trim();
+  const lower = text.toLowerCase();
+  if (
+    status === 502 || status === 504 ||
+    lower.includes("timeout") ||
+    lower.includes("timed out") ||
+    lower.includes("inactivity timeout") ||
+    lower.includes("fetch failed") ||
+    lower.includes("failed to fetch")
+  ) {
+    if (isAiApiRequest(url)) {
+      return "AI 服务响应较慢，请稍后重试；如果持续发生，请在“设置”中检查你填写的服务商、模型和 API Key。";
+    }
+    return "服务响应超时，请稍后重试。";
+  }
+  return text;
+}
+
+async function apiFetch(url, options = {}) {
+  const requestInit = {
+    method: options.method || "GET",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {})
+    },
+    signal: options.signal
+  };
+
+  if (options.body !== undefined) {
+    requestInit.headers["Content-Type"] = "application/json";
+    requestInit.body = JSON.stringify(options.body);
+  }
+
+  let response;
+  try {
+    response = await fetch(getApiUrl(url), requestInit);
+  } catch (cause) {
+    if (cause && (cause.name === "AbortError" || cause.code === 20)) {
+      throw cause;
+    }
+    const networkMessage = normalizeApiErrorMessage(cause && cause.message, undefined, url);
+    if (networkMessage) {
+      const aiNetworkError = new Error(networkMessage);
+      aiNetworkError.cause = cause;
+      throw aiNetworkError;
+    }
+    const networkError = new Error("无法连接到服务端，请确认后端服务已启动，或检查 runtime-config.js 中的 YUGE_API_BASE_URL");
+    networkError.cause = cause;
+    throw networkError;
+  }
+
+  const text = await response.text();
+  let data = {};
+
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      const plainText = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      data = plainText ? { message: plainText } : {};
+    }
+  }
+
+  if (!response.ok) {
+    const error = new Error(normalizeApiErrorMessage(data.message, response.status, url) || `请求失败：${response.status}`);
+    error.status = response.status;
+    error.payload = data;
+
+    if (response.status === 401 && !options.allowUnauthorized) {
+      resetAuthState();
+      dispatchAuthRequired();
+    }
+
+    throw error;
+  }
+
+  return data;
+}
+
+function buildPersonalityContext(current) {
+  return {
+    mbti: current.mbti || "",
+    mbtiSource: current.mbtiSource || "none",
+    reliability: Number(current.reliability) || 0,
+    match: Number(current.match) || 0,
+    radar: Array.isArray(current.radar) ? current.radar.slice(0, 8) : []
+  };
+}
+
+function buildCoachHistoryMessages(current) {
+  return (Array.isArray(current.activeConversationMessages) ? current.activeConversationMessages : [])
+    .slice(-8)
+    .map((item) => ({
+      role: item && item.role === "assistant" ? "assistant" : "user",
+      text: String(item && item.text ? item.text : "").trim()
+    }))
+    .filter((item) => item.text);
+}
+
+async function invokeSupabaseCoach({ scenario, message, details }) {
+  const current = state;
+  const settings = current.aiSettings || {};
+  const apiKey = String(settings.apiKey || "").trim();
+  if (!apiKey) {
+    throw new Error("请先到“设置”里填写你自己的 API Key，保存后再使用 AI 助手。");
+  }
+
+  const payload = await apiFetch("/.netlify/functions/coach", {
+    method: "POST",
+    body: {
+      provider: settings.provider || "openai_compatible",
+      baseUrl: settings.baseUrl || "",
+      model: settings.model || "gpt-4.1-mini",
+      apiKey,
+      scenario,
+      message,
+      details,
+      personalityContext: buildPersonalityContext(current),
+      historyMessages: buildCoachHistoryMessages(current)
+    }
+  });
+
+  if (!isValidStructuredPlanPayload(payload)) {
+    throw new Error("AI 没有返回可执行计划方案，请检查模型是否支持 JSON 输出后重试。");
+  }
+
+  return payload;
+}
+
+async function invokeSupabaseAiSettingsTest(updates, options = {}) {
+  const candidate = sanitizeAiSettings({
+    ...(state.aiSettings || {}),
+    ...updates,
+    apiKey: String(updates.apiKey || "").trim() || state.aiSettings.apiKey || ""
+  });
+  if (!candidate.apiKey) throw new Error("请先填写 API Key");
+
+  const payload = await apiFetch("/.netlify/functions/coach", {
+    method: "POST",
+    signal: options.signal,
+    body: {
+      provider: candidate.provider,
+      baseUrl: candidate.baseUrl,
+      model: candidate.model,
+      apiKey: candidate.apiKey,
+      purpose: "settings-test",
+      scenario: "AI 接口测试",
+      message: "请基于我的性格特点生成一条很短的测试建议。",
+      details: "",
+      personalityContext: buildPersonalityContext(state),
+      historyMessages: []
+    }
+  });
+
+  return {
+    ok: true,
+    provider: payload.provider || candidate.provider,
+    model: payload.model || candidate.model,
+    replyPreview: payload.reply || "AI 接口测试成功"
+  };
+}
+
+async function initialize() {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client.auth.getSession();
+      if (error) throw new Error(error.message || "读取 Supabase 会话失败");
+      if (data && data.session && data.session.user) {
+        await loadSupabaseState(data.session.user);
+        return { authenticated: true, user: currentUser };
+      }
+    } catch (error) {
+      console.error("Supabase session bootstrap failed", error);
+    }
+    resetAuthState();
+    return { authenticated: false, user: null };
+  }
+
+  try {
+    const session = await apiFetch("/api/auth/session", { allowUnauthorized: true });
+    if (session.authenticated) {
+      currentUser = session.user;
+      await fetchAppState();
+      return { authenticated: true, user: currentUser };
+    }
+  } catch (error) {
+    console.error("Session bootstrap failed", error);
+  }
+
+  resetAuthState();
+  return { authenticated: false, user: null };
+}
+
+async function fetchAppState() {
+  const client = getSupabaseClient();
+  if (client) {
+    const { data, error } = await client.auth.getUser();
+    if (error || !data || !data.user) {
+      resetAuthState();
+      dispatchAuthRequired();
+      throw new Error("当前未登录");
+    }
+    return loadSupabaseState(data.user);
+  }
+
+  const payload = await apiFetch("/api/app-state");
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+function readLegacyLocalData() {
+  const rawState = localStorage.getItem(LEGACY_STORAGE_KEY);
+  const rawOnboarding = localStorage.getItem(LEGACY_ONBOARDING_KEY);
+
+  if (!rawState && rawOnboarding === null) {
+    return null;
+  }
+
+  let parsedState = {};
+  if (rawState) {
+    try {
+      parsedState = JSON.parse(rawState);
+    } catch (error) {
+      parsedState = {};
+    }
+  }
+
+  return {
+    state: parsedState,
+    onboardingCompleted: rawOnboarding === "1"
+  };
+}
+
+function clearLegacyLocalData() {
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_ONBOARDING_KEY);
+}
+
+async function maybeImportLegacyLocalData() {
+  const legacy = readLegacyLocalData();
+  if (!legacy) {
+    return { imported: false };
+  }
+
+  const payload = await apiFetch("/api/app-state/import-local", {
+    method: "POST",
+    body: legacy,
+    allowUnauthorized: false
+  });
+
+  if (payload.imported || (payload.state && payload.state.importedFromLocal)) {
+    clearLegacyLocalData();
+  }
+
+  if (payload.state) {
+    currentUser = payload.user || currentUser;
+    setStateFromServer(payload.state);
+  }
+
+  return payload;
+}
+
+async function register(username, email, password) {
+  const client = getSupabaseClient();
+  if (client) {
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { username },
+        emailRedirectTo: getAuthRedirectUrl()
+      }
+    });
+    if (error) throw new Error(error.message || "注册失败");
+    if (!data.user) throw new Error("注册成功，请先到邮箱完成验证后再登录");
+
+    // When "Confirm email" is enabled, Supabase intentionally returns no session.
+    // Do not try to read app data before the user has clicked the verified email link.
+    if (!data.session) {
+      return {
+        requiresEmailVerification: true,
+        email: data.user.email || email
+      };
+    }
+    await loadSupabaseState(data.user);
+    return { ...buildAppPayload(), requiresEmailVerification: false };
+  }
+
+  const data = await apiFetch("/api/auth/register", {
+    method: "POST",
+    body: { username, email, password },
+    allowUnauthorized: true
+  });
+
+  currentUser = data.user;
+  if (data.state) {
+    setStateFromServer(data.state);
+  }
+
+  try {
+    await maybeImportLegacyLocalData();
+    await fetchAppState();
+  } catch (error) {
+    console.warn("Post-register bootstrap failed", error);
+    if (!data.state) {
+      throw error;
+    }
+  }
+
+  return data;
+}
+
+async function login(account, password, rememberMe = false) {
+  const client = getSupabaseClient();
+  if (client) {
+    const loginAccount = String(account || "").trim();
+    const isEmailAccount = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginAccount);
+    const { data, error } = isEmailAccount
+      ? await client.auth.signInWithPassword({ email: loginAccount, password })
+      : await loginSupabaseWithUsername(client, loginAccount, password);
+    if (error) throw new Error(error.message || "登录失败");
+    if (!data.user) throw new Error("登录失败");
+    await loadSupabaseState(data.user);
+    return buildAppPayload();
+  }
+
+  const data = await apiFetch("/api/auth/login", {
+    method: "POST",
+    body: { account, password, rememberMe },
+    allowUnauthorized: true
+  });
+
+  currentUser = data.user;
+  if (data.state) {
+    setStateFromServer(data.state);
+  }
+
+  try {
+    await maybeImportLegacyLocalData();
+    await fetchAppState();
+  } catch (error) {
+    console.warn("Post-login bootstrap failed", error);
+    if (!data.state) {
+      throw error;
+    }
+  }
+
+  return data;
+}
+
+async function loginSupabaseWithUsername(client, username, password) {
+  const { data: payload, error } = await client.functions.invoke("username-login", {
+    body: { username, password }
+  });
+  if (error) {
+    throw new Error("用户名或密码错误");
+  }
+  if (!payload || !payload.access_token || !payload.refresh_token) {
+    throw new Error("用户名或密码错误");
+  }
+  return client.auth.setSession({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token
+  });
+}
+
+function getAuthRedirectUrl() {
+  if (typeof window === "undefined" || !window.location || !window.location.origin) return undefined;
+  return `${window.location.origin}/`;
+}
+
+function toChinaE164Phone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!/^1[3-9]\d{9}$/.test(digits)) {
+    throw new Error("请输入有效的中国大陆手机号");
+  }
+  return `+86${digits}`;
+}
+
+function normalizePhoneAuthError(error, fallback) {
+  const text = String(error && error.message || error || "").trim();
+  const lower = text.toLowerCase();
+  if (/sms|phone/.test(lower) && /provider|not enabled|not configured|unsupported|disabled/.test(lower)) {
+    return "短信验证尚未配置。请让管理员在 Supabase 的 Authentication → Providers 中启用 Phone，并配置短信服务商。";
+  }
+  if (/rate limit|too many requests/.test(lower)) {
+    return "验证码请求过于频繁，请稍后再试。";
+  }
+  return text || fallback;
+}
+
+async function requestPhoneOtp(phone) {
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error("当前部署尚未接入短信登录服务");
+  }
+
+  const { error } = await client.auth.signInWithOtp({
+    phone: toChinaE164Phone(phone),
+    options: { shouldCreateUser: true }
+  });
+  if (error) throw new Error(normalizePhoneAuthError(error, "验证码发送失败"));
+  return { ok: true };
+}
+
+async function verifyPhoneOtp(phone, token) {
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error("当前部署尚未接入短信登录服务");
+  }
+
+  const { data, error } = await client.auth.verifyOtp({
+    phone: toChinaE164Phone(phone),
+    token: String(token || "").replace(/\D/g, ""),
+    type: "sms"
+  });
+  if (error) throw new Error(normalizePhoneAuthError(error, "验证码无效或已过期"));
+  if (!data || !data.user || !data.session) throw new Error("验证码验证失败，请重新获取验证码");
+  await loadSupabaseState(data.user);
+  return buildAppPayload();
+}
+
+async function requestPasswordReset(email) {
+  const client = getSupabaseClient();
+  if (client) {
+    const { error } = await client.auth.resetPasswordForEmail(String(email || "").trim(), {
+      redirectTo: getAuthRedirectUrl()
+    });
+    if (error) throw new Error(error.message || "重置邮件发送失败");
+    return { message: "重置邮件已发送" };
+  }
+  return apiFetch("/api/auth/forgot-password", {
+    method: "POST",
+    body: { email },
+    allowUnauthorized: true
+  });
+}
+
+async function resendEmailVerification(email) {
+  const client = getSupabaseClient();
+  if (client) {
+    const { error } = await client.auth.resend({
+      type: "signup",
+      email: String(email || "").trim(),
+      options: { emailRedirectTo: getAuthRedirectUrl() }
+    });
+    if (error) throw new Error(error.message || "验证邮件发送失败");
+    return { message: "验证邮件已重新发送" };
+  }
+  return apiFetch("/api/auth/send-verification-email", { method: "POST" });
+}
+
+async function logout() {
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      await client.auth.signOut();
+    } finally {
+      resetAuthState();
+    }
+    return { ok: true };
+  }
+
+  try {
+    await apiFetch("/api/auth/logout", {
+      method: "POST",
+      allowUnauthorized: true
+    });
+  } finally {
+    resetAuthState();
+  }
+}
+
+function getState() {
+  return state;
+}
+
+function getUser() {
+  return currentUser;
+}
+
+function isAuthenticated() {
+  return Boolean(currentUser && currentUser.id);
+}
+
+async function updatePreferences(updates) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      theme: updates.theme !== undefined ? updates.theme : current.theme,
+      selectedScenario: updates.selectedScenario !== undefined ? updates.selectedScenario : current.selectedScenario,
+      onboardingCompleted: updates.onboardingCompleted !== undefined ? updates.onboardingCompleted : current.onboardingCompleted
+    }));
+  }
+
+  const payload = await apiFetch("/api/preferences", {
+    method: "PUT",
+    body: updates
+  });
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function toggleTheme() {
+  const nextTheme = state.theme === "light" ? "dark" : "light";
+  return updatePreferences({ theme: nextTheme });
+}
+
+async function closeOnboarding() {
+  return updatePreferences({ onboardingCompleted: true });
+}
+
+async function setSelectedScenario(selectedScenario) {
+  return updatePreferences({ selectedScenario });
+}
+
+async function persistMbtiProgress() {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState(state);
+  }
+
+  const payload = await apiFetch("/api/mbti/progress", {
+    method: "PUT",
+    body: {
+      currentQuestion: state.currentQuestion,
+      answers: state.answers
+    }
+  });
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function setCurrentQuestion(index) {
+  state = sanitizeState({ ...state, currentQuestion: index });
+  return persistMbtiProgress();
+}
+
+async function answerQuestion(index, value) {
+  const nextAnswers = state.answers.slice();
+  if (index < 0 || index >= TOTAL_QUESTIONS) return null;
+  nextAnswers[index] = Number(value);
+  state = sanitizeState({ ...state, answers: nextAnswers });
+  return persistMbtiProgress();
+}
+
+function getNextUnansweredIndex() {
+  const index = state.answers.findIndex((item) => item === null);
+  return index === -1 ? 0 : index;
+}
+
+function buildRadarValues(type, scores) {
+  const t = String(type || "INFP").split("");
+  const clamp = (value) => Math.max(35, Math.min(92, Math.round(value)));
+  return [
+    clamp(t[0] === "I" ? 78 : 46),
+    clamp(t[1] === "N" ? 80 : 48),
+    clamp(t[2] === "F" ? 82 : 50),
+    clamp(t[3] === "P" ? 79 : 47),
+    clamp(68 - Math.abs(scores.FT) * 0.8),
+    clamp(65 + Math.abs(scores.PJ) * 0.8),
+    clamp(60 + Math.abs(scores.IE) * 0.5),
+    clamp(58 + Math.abs(scores.NS) * 0.5)
+  ];
+}
+
+function computeMbtiFromAnswers(answers) {
+  const safeAnswers = sanitizeAnswers(answers);
+  if (safeAnswers.some((value) => value === null)) return null;
+  const scores = { IE: 0, NS: 0, FT: 0, PJ: 0 };
+  questionBank.forEach((question, index) => {
+    scores[question.dimension] += safeAnswers[index];
+  });
+  const mbti = [
+    scores.IE >= 0 ? "E" : "I",
+    scores.NS >= 0 ? "S" : "N",
+    scores.FT >= 0 ? "T" : "F",
+    scores.PJ >= 0 ? "J" : "P"
+  ].join("");
+  const avgAbs = safeAnswers.reduce((sum, value) => sum + Math.abs(value), 0) / TOTAL_QUESTIONS;
+  const balance = (Math.abs(scores.IE) + Math.abs(scores.NS) + Math.abs(scores.FT) + Math.abs(scores.PJ)) / 4;
+  return {
+    mbti,
+    reliability: Math.round(72 + Math.min(25, avgAbs * 12)),
+    match: Math.round(65 + Math.min(30, balance * 2)),
+    radar: buildRadarValues(mbti, scores)
+  };
+}
+
+async function completeMBTI() {
+  if (state.answers.some((item) => item === null)) {
+    return { ok: false, message: "还有未完成题目，请先答完56题" };
+  }
+
+  if (getSupabaseClient()) {
+    const result = computeMbtiFromAnswers(state.answers);
+    if (!result) return { ok: false, message: "还有未完成题目，请先答完56题" };
+    await mutateSupabaseState((current) => ({
+      ...current,
+      mbti: result.mbti,
+      mbtiSource: "test",
+      reliability: result.reliability,
+      match: result.match,
+      radar: result.radar
+    }));
+    return { ok: true, type: result.mbti, result };
+  }
+
+  const payload = await apiFetch("/api/mbti/complete", {
+    method: "POST",
+    body: {
+      answers: state.answers
+    }
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return {
+    ok: true,
+    type: payload.result.mbti,
+    result: payload.result
+  };
+}
+
+async function manualSelectMbti(mbti) {
+  if (getSupabaseClient()) {
+    const normalized = sanitizeMbtiType(mbti);
+    if (!normalized) throw new Error("请选择有效的 MBTI 类型");
+    return mutateSupabaseState((current) => ({
+      ...current,
+      mbti: normalized,
+      mbtiSource: "manual",
+      reliability: 0,
+      match: 0,
+      radar: buildTypeRadar(normalized)
+    }));
+  }
+
+  const payload = await apiFetch("/api/mbti/manual-select", {
+    method: "PUT",
+    body: { mbti }
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function resetMBTI() {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      currentQuestion: 0,
+      answers: new Array(TOTAL_QUESTIONS).fill(null),
+      mbti: null,
+      mbtiSource: "none",
+      reliability: 0,
+      match: 0,
+      radar: []
+    }));
+  }
+
+  const payload = await apiFetch("/api/mbti/reset", {
+    method: "POST"
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function addTodo(text) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    const trimmed = String(text || "").trim();
+    if (!trimmed) throw new Error("请输入任务内容");
+    return mutateSupabaseState((current) => ({
+      ...current,
+      todos: [{ id: cryptoRandomId(), text: trimmed, done: false, createdAt: now, updatedAt: now }, ...current.todos]
+    }));
+  }
+
+  const payload = await apiFetch("/api/todos", {
+    method: "POST",
+    body: { text }
+  });
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function toggleTodoDone(id, done) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    return mutateSupabaseState((current) => ({
+      ...current,
+      todos: current.todos.map((todo) => todo.id === id ? { ...todo, done: Boolean(done), updatedAt: now } : todo)
+    }));
+  }
+
+  const payload = await apiFetch(`/api/todos/${id}`, {
+    method: "PATCH",
+    body: { done }
+  });
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function requestCoach(input) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    const scenario = sanitizeScenario(input && input.scenario);
+    const userText = String(input && input.message ? input.message : input && input.goal ? input.goal : "").trim();
+    const goal = String(input && input.goal ? input.goal : userText).trim() || "提升表达与行动一致性";
+    const details = String(input && input.details ? input.details : "").trim();
+    if (!userText) throw new Error("请先输入你想对助手说的话");
+    const historyId = cryptoRandomId();
+    const conversationId = state.activeAiConversationId || cryptoRandomId();
+    const coachPayload = await invokeSupabaseCoach({ scenario, message: userText, details });
+    const structuredPlan = coachPayload.structuredPlan;
+    const response = {
+      source: coachPayload.source || "custom-api",
+      mode: "structured-plan",
+      provider: coachPayload.provider || "",
+      model: coachPayload.model || "",
+      summary: [coachPayload.reply, coachPayload.analysis].map((item) => String(item || "").trim()).filter(Boolean).join("\n\n"),
+      steps: structuredPlan.plan_groups[0].plans[0].tasks.map((task) => task.task_description),
+      reflectionQuestion: "这三个动作里，哪一个最适合今天先做？",
+      taskSuggestion: `${scenario}：完成一次微行动`,
+      structuredPlan
+    };
+    let payload;
+    await mutateSupabaseState((current) => {
+      const conversations = current.aiConversations.slice();
+      const existingIndex = conversations.findIndex((item) => item.id === conversationId);
+      const conversation = {
+        id: conversationId,
+        title: goal.length > 26 ? `${goal.slice(0, 26)}...` : goal,
+        scenario,
+        createdAt: existingIndex >= 0 ? conversations[existingIndex].createdAt : now,
+        updatedAt: now,
+        lastMessageAt: now,
+        preview: response.summary,
+        turnCount: existingIndex >= 0 ? conversations[existingIndex].turnCount + 1 : 1
+      };
+      if (existingIndex >= 0) conversations[existingIndex] = conversation;
+      else conversations.unshift(conversation);
+      const userMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "user", text: userText || goal, details, createdAt: now };
+      const assistantMessage = { id: cryptoRandomId(), turnId: historyId, historyId, role: "assistant", text: response.summary, structuredPlan, createdAt: now };
+      return {
+        ...current,
+        activeAiConversationId: conversationId,
+        aiConversations: conversations,
+        activeConversationMessages: [...current.activeConversationMessages, userMessage, assistantMessage],
+        aiHistory: [{ id: historyId, scenario, goal, details, response, createdAt: now }, ...current.aiHistory]
+      };
+    });
+    payload = {
+      ...buildAppPayload(),
+      mode: "structured-plan",
+      response,
+      structuredPlan,
+      historyId
+    };
+    return payload;
+  }
+
+  const payload = await apiFetch("/api/coach", {
+    method: "POST",
+    body: input
+  });
+
+  if (!isValidStructuredPlanPayload(payload)) {
+    throw new Error("当前服务返回了旧版聊天结果，不支持计划方案。请重启最新版愈格服务后再试。");
+  }
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function setActiveAiConversation(conversationId) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      activeAiConversationId: conversationId || null
+    }));
+  }
+
+  const payload = await apiFetch("/api/ai-conversations/active", {
+    method: "POST",
+    body: { conversationId: conversationId || null }
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function loadAiConversationMessages(conversationId) {
+  if (getSupabaseClient()) {
+    if (!conversationId || conversationId !== state.activeAiConversationId) return [];
+    return state.activeConversationMessages;
+  }
+
+  return apiFetch(`/api/ai-conversations/${encodeURIComponent(conversationId)}/messages`);
+}
+
+async function updateAiConversation(conversationId, updates) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      aiConversations: current.aiConversations.map((item) => item.id === conversationId ? { ...item, ...updates, updatedAt: new Date().toISOString() } : item)
+    }));
+  }
+
+  const payload = await apiFetch(`/api/ai-conversations/${encodeURIComponent(conversationId)}`, {
+    method: "PATCH",
+    body: updates
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function deleteAiConversation(conversationId) {
+  if (getSupabaseClient()) {
+    return mutateSupabaseState((current) => ({
+      ...current,
+      activeAiConversationId: current.activeAiConversationId === conversationId ? null : current.activeAiConversationId,
+      aiConversations: current.aiConversations.filter((item) => item.id !== conversationId),
+      activeConversationMessages: current.activeAiConversationId === conversationId ? [] : current.activeConversationMessages
+    }));
+  }
+
+  const payload = await apiFetch(`/api/ai-conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE"
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  return payload;
+}
+
+async function addPlanBookEntry(sourceHistoryId, groupIndex, planIndex) {
+  if (getSupabaseClient()) {
+    const history = state.aiHistory.find((item) => item.id === sourceHistoryId);
+    const group = history && history.response && history.response.structuredPlan
+      ? history.response.structuredPlan.plan_groups[groupIndex]
+      : null;
+    const plan = group && group.plans ? group.plans[planIndex] : null;
+    if (!plan) throw new Error("找不到可加入计划簿的计划");
+    const now = new Date().toISOString();
+    const entryId = cryptoRandomId();
+    await mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: [
+        {
+          id: entryId,
+          sourceHistoryId,
+          sourceGroupIndex: groupIndex,
+          sourcePlanIndex: planIndex,
+          groupName: group.group_name,
+          groupDescription: group.group_description,
+          planName: plan.plan_name,
+          planDescription: plan.plan_description,
+          estimatedDays: plan.estimated_days,
+          completionThreshold: plan.completion_threshold,
+          status: "active",
+          achievedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          tasks: plan.tasks.map((task, index) => ({
+            id: `${entryId}_${index}`,
+            taskDescription: task.task_description,
+            done: false,
+            sortOrder: index,
+            completedAt: null
+          }))
+        },
+        ...current.planBookEntries
+      ]
+    }));
+    document.dispatchEvent(new CustomEvent("planBookChanged"));
+    return;
+  }
+
+  const payload = await apiFetch("/api/plan-book", {
+    method: "POST",
+    body: { sourceHistoryId, groupIndex, planIndex }
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  document.dispatchEvent(new CustomEvent("planBookChanged"));
+  return payload;
+}
+
+async function removePlanBookEntry(entryId) {
+  if (getSupabaseClient()) {
+    await mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: current.planBookEntries.filter((entry) => entry.id !== entryId)
+    }));
+    document.dispatchEvent(new CustomEvent("planBookChanged"));
+    return;
+  }
+
+  const payload = await apiFetch(`/api/plan-book/${encodeURIComponent(entryId)}`, {
+    method: "DELETE"
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  document.dispatchEvent(new CustomEvent("planBookChanged"));
+  return payload;
+}
+
+async function restartPlanBookEntry(entryId) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    await mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: current.planBookEntries.map((entry) => entry.id === entryId
+        ? {
+            ...entry,
+            status: "active",
+            achievedAt: null,
+            updatedAt: now,
+            tasks: entry.tasks.map((task) => ({ ...task, done: false, completedAt: null }))
+          }
+        : entry)
+    }));
+    document.dispatchEvent(new CustomEvent("planBookChanged"));
+    return;
+  }
+
+  const payload = await apiFetch(`/api/plan-book/${encodeURIComponent(entryId)}/restart`, {
+    method: "POST"
+  });
+
+  currentUser = payload.user;
+  setStateFromServer(payload.state);
+  document.dispatchEvent(new CustomEvent("planBookChanged"));
+  return payload;
+}
+
+async function togglePlanBookTask(entryId, taskId, done) {
+  if (getSupabaseClient()) {
+    const now = new Date().toISOString();
+    await mutateSupabaseState((current) => ({
+      ...current,
+      planBookEntries: current.planBookEntries.map((entry) => {
         if (entry.id !== entryId) return entry;
         const tasks = entry.tasks.map((task) => task.id === taskId
           ? { ...task, done: Boolean(done), completedAt: done ? now : null }

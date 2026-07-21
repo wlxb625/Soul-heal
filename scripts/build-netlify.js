@@ -1,12 +1,18 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 
 const rootDir = path.join(__dirname, "..");
+const buildCommand = process.platform === "win32"
+  ? [process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm run build:mbti-react"]]
+  : ["npm", ["run", "build:mbti-react"]];
+execFileSync(buildCommand[0], buildCommand[1], { cwd: rootDir, stdio: "inherit" });
 const distDir = path.join(rootDir, "dist");
 const STATIC_FILES = [
   "index.html",
   "app.chat.js",
   "common.runtime.js",
+  "site-motion.js",
   "styles.css",
   "yuge-logo.png",
   "wood-dark.png",

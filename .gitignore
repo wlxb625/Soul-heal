@@ -10,3 +10,4 @@ tmp-server-err.log
 npm-debug.log*
 
 dist/
+assets/react-mbti/
