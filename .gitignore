@@ -11,3 +11,4 @@ npm-debug.log*
 
 dist/
 assets/react-mbti/
+react-ui-dist/
