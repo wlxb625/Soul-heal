@@ -10,6 +10,8 @@ let activeApiTestController = null;
 let pendingCoachMessage = null;
 let authValidationTimers = {};
 let phoneOtpRequestedFor = "";
+let mbtiQuestionTransitioning = false;
+let mbtiQuestionTransitionTimer = 0;
 const deletingHistoryIds = new Set();
 const expandedAchievedPlanIds = new Set();
 const achievedMonthVisibility = new Map();
@@ -289,6 +291,53 @@ function animateModulePanel(panel) {
   panel.style.animation = "";
 }
 
+async function transitionMbtiQuestion(nextIndex, direction = 1) {
+  const state = app.getState();
+  if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= app.TOTAL_QUESTIONS) return;
+  if (nextIndex === state.currentQuestion) {
+    renderMBTI();
+    return;
+  }
+
+  const answerStage = document.querySelector("#module-mbti .mbti-answer-stage");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (mbtiQuestionTransitioning) return;
+  if (!answerStage || reduceMotion) {
+    await app.setCurrentQuestion(nextIndex);
+    renderMBTI();
+    return;
+  }
+
+  mbtiQuestionTransitioning = true;
+  answerStage.dataset.mbtiQuestionDirection = direction < 0 ? "backward" : "forward";
+  answerStage.classList.add("mbti-question-is-transitioning");
+  answerStage.querySelectorAll(".mbti-question-card, .option-item").forEach((element) => {
+    element.classList.add("mbti-question-exit");
+  });
+
+  try {
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+    await app.setCurrentQuestion(nextIndex);
+    renderMBTI();
+
+    answerStage.classList.remove("mbti-question-is-transitioning");
+    answerStage.classList.add("mbti-question-enter");
+    window.requestAnimationFrame(() => {
+      answerStage.classList.add("mbti-question-enter-active");
+    });
+    window.clearTimeout(mbtiQuestionTransitionTimer);
+    mbtiQuestionTransitionTimer = window.setTimeout(() => {
+      answerStage.classList.remove("mbti-question-enter", "mbti-question-enter-active");
+      mbtiQuestionTransitioning = false;
+    }, 360);
+  } catch (error) {
+    answerStage.classList.remove("mbti-question-is-transitioning");
+    answerStage.querySelectorAll(".mbti-question-exit").forEach((element) => element.classList.remove("mbti-question-exit"));
+    mbtiQuestionTransitioning = false;
+    throw error;
+  }
+}
+
 init();
 
 async function init() {
@@ -479,8 +528,8 @@ function bindEvents() {
     const index = Number(event.detail?.index);
     if (!Number.isInteger(index) || index < 0 || index >= app.TOTAL_QUESTIONS) return;
     try {
-      await app.setCurrentQuestion(index);
-      renderMBTI();
+      const currentIndex = app.getState().currentQuestion;
+      await transitionMbtiQuestion(index, index >= currentIndex ? 1 : -1);
     } catch (error) {
       app.notify(error.message || "无法跳转到该题");
     }
@@ -497,8 +546,7 @@ function bindEvents() {
 
   els.prevQuestion.addEventListener("click", async () => {
     try {
-      await app.setCurrentQuestion(app.getState().currentQuestion - 1);
-      renderMBTI();
+      await transitionMbtiQuestion(app.getState().currentQuestion - 1, -1);
     } catch (error) {
       app.notify(error.message || "无法切换题目");
     }
@@ -506,8 +554,7 @@ function bindEvents() {
 
   els.nextQuestion.addEventListener("click", async () => {
     try {
-      await app.setCurrentQuestion(app.getState().currentQuestion + 1);
-      renderMBTI();
+      await transitionMbtiQuestion(app.getState().currentQuestion + 1, 1);
     } catch (error) {
       app.notify(error.message || "无法切换题目");
     }
@@ -1175,7 +1222,12 @@ function switchModule(moduleName, writeURL = true) {
     initMbtiOrbitScene();
     ensureReactMbtiNavigator().catch((error) => console.warn(error.message));
   }
-  if (moduleName === "analysis") renderAnalysis();
+  if (moduleName === "analysis") {
+    renderAnalysis();
+    ensureChartJs().then(() => {
+      if (activeModule === "analysis") renderAnalysis();
+    }).catch(() => {});
+  }
   if (moduleName === "coach") renderCoach();
   if (moduleName === "progress") renderProgress();
   if (moduleName === "settings") renderSettings();
@@ -1579,9 +1631,8 @@ function renderMBTI() {
         if (questionIndex >= app.TOTAL_QUESTIONS - 1) {
           const result = await app.completeMBTI();
           if (!result.ok) {
-            await app.setCurrentQuestion(app.getNextUnansweredIndex());
+            await transitionMbtiQuestion(app.getNextUnansweredIndex(), 1);
             renderHome();
-            renderMBTI();
             renderProgress();
             app.notify(result.message || "还有未完成题目");
             return;
@@ -1593,9 +1644,8 @@ function renderMBTI() {
           return;
         }
 
-        await app.setCurrentQuestion(questionIndex + 1);
+        await transitionMbtiQuestion(questionIndex + 1, 1);
         renderHome();
-        renderMBTI();
         renderProgress();
       } catch (error) {
         app.notify(error.message || "保存进度失败");
@@ -1614,8 +1664,7 @@ function renderMBTI() {
     if (i === state.currentQuestion) btn.classList.add("current");
     btn.addEventListener("click", async () => {
       try {
-        await app.setCurrentQuestion(i);
-        renderMBTI();
+        await transitionMbtiQuestion(i, i >= state.currentQuestion ? 1 : -1);
       } catch (error) {
         app.notify(error.message || "无法跳转到该题");
       }
