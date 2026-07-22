@@ -79,6 +79,49 @@ const MODULE_PATH_MAP = {
   "/settings": "settings"
 };
 
+let chartJsLoadPromise = null;
+let reactMbtiLoadPromise = null;
+
+function ensureChartJs() {
+  if (typeof window.Chart === "function") return Promise.resolve(window.Chart);
+  if (chartJsLoadPromise) return chartJsLoadPromise;
+
+  chartJsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js";
+    script.async = true;
+    script.dataset.lazyAsset = "chart-js";
+    script.addEventListener("load", () => resolve(window.Chart), { once: true });
+    script.addEventListener("error", () => {
+      chartJsLoadPromise = null;
+      reject(new Error("Chart.js failed to load"));
+    }, { once: true });
+    document.head.appendChild(script);
+  });
+
+  return chartJsLoadPromise;
+}
+
+function ensureReactMbtiNavigator() {
+  if (window.__YugeMbtiNavigatorReady) return Promise.resolve();
+  if (reactMbtiLoadPromise) return reactMbtiLoadPromise;
+
+  reactMbtiLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "assets/react-mbti/mbti-navigator.iife.js?v=mbti-react-v1";
+    script.async = true;
+    script.dataset.lazyAsset = "react-mbti";
+    script.addEventListener("load", resolve, { once: true });
+    script.addEventListener("error", () => {
+      reactMbtiLoadPromise = null;
+      reject(new Error("React MBTI navigator failed to load"));
+    }, { once: true });
+    document.body.appendChild(script);
+  });
+
+  return reactMbtiLoadPromise;
+}
+
 const els = {
   authShell: document.getElementById("authShell"),
   siteShell: document.getElementById("siteShell"),
@@ -260,7 +303,6 @@ async function init() {
     if (session.authenticated) {
       hydrateLatestCoachResponse();
       showAppShell();
-      renderAll();
       restoreModuleFromURL();
       renderOnboarding();
       return;
@@ -986,7 +1028,6 @@ async function handleAuthSubmit(event) {
   try {
     hydrateLatestCoachResponse();
     showAppShell();
-    renderAll();
     restoreModuleFromURL();
     renderOnboarding();
     clearAuthForm();
@@ -1132,6 +1173,7 @@ function switchModule(moduleName, writeURL = true) {
   if (moduleName === "mbti") {
     renderMBTI();
     initMbtiOrbitScene();
+    ensureReactMbtiNavigator().catch((error) => console.warn(error.message));
   }
   if (moduleName === "analysis") renderAnalysis();
   if (moduleName === "coach") renderCoach();
@@ -1291,12 +1333,12 @@ function getMbtiSourceText(state) {
 function renderAll() {
   hydrateLatestCoachResponse();
   showAppShell();
-  renderHome();
-  renderMBTI();
-  renderAnalysis();
-  renderCoach();
-  renderProgress();
-  renderSettings();
+  if (activeModule === "home") renderHome();
+  if (activeModule === "mbti") renderMBTI();
+  if (activeModule === "analysis") renderAnalysis();
+  if (activeModule === "coach") renderCoach();
+  if (activeModule === "progress") renderProgress();
+  if (activeModule === "settings") renderSettings();
 }
 
 function renderOnboarding() {
@@ -3000,9 +3042,6 @@ function initDashboard() {
   updateCoachEntry(); // AI coach recommendation based on profile
   updateTotalGain();
 
-  // Render the unified plan dashboard (replaces old renderTasks)
-  renderPlanDashboard();
-
   // Bind dashboard interaction events
   bindPlanDashEvents();
 
@@ -4220,7 +4259,10 @@ function initMouseEffects() {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   console.log("🖱️ Reduced motion preferred:", reducedMotion);
   if (reducedMotion) {
-    console.log("🖱️ User prefers reduced motion - cursor effects may be disabled by CSS");
+    glow.style.display = "none";
+    dot.style.display = "none";
+    ring.style.display = "none";
+    return;
   }
 
   let mouseX = window.innerWidth / 2;
@@ -4230,14 +4272,22 @@ function initMouseEffects() {
   let glowX = mouseX;
   let glowY = mouseY;
 
+  let motionFrame = 0;
+
+  const schedulePositionUpdate = () => {
+    if (!motionFrame && !document.hidden) motionFrame = requestAnimationFrame(updatePositions);
+  };
+
   document.addEventListener("mousemove", (e) => {
     mouseX = e.clientX;
     mouseY = e.clientY;
     dot.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-50%, -50%)`;
-  });
+    schedulePositionUpdate();
+  }, { passive: true });
 
   // Smooth follow for ring and glow
   function updatePositions() {
+    motionFrame = 0;
     // Ring follows with slight lag
     ringX += (mouseX - ringX) * 0.18;
     ringY += (mouseY - ringY) * 0.18;
@@ -4256,9 +4306,19 @@ function initMouseEffects() {
     if (orb3) orb3.style.transform = `translate(${cx * 50}px, ${cy * -35}px)`;
     if (veil) veil.style.transform = `translate(${cx * 10}px, ${cy * 10}px)`;
 
-    requestAnimationFrame(updatePositions);
+    const ringDistance = Math.abs(mouseX - ringX) + Math.abs(mouseY - ringY);
+    const glowDistance = Math.abs(mouseX - glowX) + Math.abs(mouseY - glowY);
+    if (ringDistance > 0.35 || glowDistance > 0.35) schedulePositionUpdate();
   }
-  requestAnimationFrame(updatePositions);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && motionFrame) {
+      cancelAnimationFrame(motionFrame);
+      motionFrame = 0;
+    } else {
+      schedulePositionUpdate();
+    }
+  });
+  schedulePositionUpdate();
   console.log("✅ initMouseEffects: cursor follow animation started");
 
   // Ring expands over interactive elements. pointerover/out must account for
@@ -4699,6 +4759,8 @@ if (document.readyState === "loading") {
 function initProgressTabs() {
   const tabBtns = document.querySelectorAll(".progress-tab-btn");
   tabBtns.forEach((btn) => {
+    if (btn.dataset.progressBound === "true") return;
+    btn.dataset.progressBound = "true";
     btn.addEventListener("click", () => {
       const tab = btn.dataset.progressTab;
       // Update button active state
@@ -4709,7 +4771,13 @@ function initProgressTabs() {
       const target = document.getElementById("progressTab" + capitalize(tab));
       if (target) target.classList.remove("hidden");
       // Render tab content
-      if (tab === "dashboard") renderDashboardCharts();
+      if (tab === "dashboard") {
+        ensureChartJs()
+          .then(() => {
+            if (target && !target.classList.contains("hidden")) renderDashboardCharts();
+          })
+          .catch(() => app.notify("图表组件加载失败，请稍后重试"));
+      }
       if (tab === "achievements") renderAchievements();
     });
   });
@@ -5290,7 +5358,7 @@ function closeSwapModal() {
 function refreshDashboardIfVisible() {
   const dashTab = document.getElementById("progressTabDashboard");
   if (dashTab && !dashTab.classList.contains("hidden")) {
-    renderDashboardCharts();
+    ensureChartJs().then(renderDashboardCharts).catch(() => {});
   }
   const achTab = document.getElementById("progressTabAchievements");
   if (achTab && !achTab.classList.contains("hidden")) {
